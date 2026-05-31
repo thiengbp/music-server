@@ -5,6 +5,7 @@ require('dotenv').config();
 const express = require('express');
 const db = require('./config/database');
 const libraryRoutes = require('./routes/library.routes');
+const streamRoutes = require('./routes/stream.routes');
 const tracksRoutes = require('./routes/tracks.routes');
 
 const app = express();
@@ -40,6 +41,7 @@ app.get('/health', async (req, res) => {
 
 app.use('/tracks', tracksRoutes);
 app.use('/library', libraryRoutes);
+app.use('/stream', streamRoutes);
 
 const server = app.listen(port, (err) => {
   if (err) {
