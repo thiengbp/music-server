@@ -43,6 +43,9 @@ app.use('/tracks', tracksRoutes);
 app.use('/library', libraryRoutes);
 app.use('/stream', streamRoutes);
 
+let isShuttingDown = false;
+let shouldForceExit = false;
+
 const server = app.listen(port, (err) => {
   if (err) {
     console.error('Failed to start server:', err.message);
@@ -53,6 +56,20 @@ const server = app.listen(port, (err) => {
 });
 
 function shutdown(signal) {
+  if (isShuttingDown) {
+    if (shouldForceExit) {
+      console.error(`${signal} received during shutdown, forcing exit...`);
+      process.exit(1);
+    }
+
+    return;
+  }
+
+  isShuttingDown = true;
+  setTimeout(() => {
+    shouldForceExit = true;
+  }, 1000);
+
   console.log(`${signal} received, shutting down...`);
 
   server.close(() => {
