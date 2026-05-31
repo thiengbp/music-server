@@ -28,12 +28,39 @@
       }
 
       .player {
+        display: grid;
+        grid-template-columns: 96px 1fr;
+        gap: 16px;
+        align-items: center;
         position: sticky;
         top: 0;
         z-index: 1;
         padding: 16px 0;
         background: #f5f6f8;
         border-bottom: 1px solid #d9dde3;
+      }
+
+      .cover {
+        width: 96px;
+        aspect-ratio: 1;
+        display: grid;
+        place-items: center;
+        border: 1px solid #d9dde3;
+        border-radius: 6px;
+        overflow: hidden;
+        background: #e7eaf0;
+        color: #666f7a;
+        font-weight: 700;
+      }
+
+      .cover img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .cover img[hidden] {
+        display: none;
       }
 
       .now-playing {
@@ -99,6 +126,16 @@
         color: #666f7a;
         font-size: 14px;
       }
+
+      @media (max-width: 640px) {
+        .player {
+          grid-template-columns: 72px 1fr;
+        }
+
+        .cover {
+          width: 72px;
+        }
+      }
     </style>
   </head>
   <body>
@@ -106,8 +143,14 @@
       <h1>Music Server</h1>
 
       <section class="player">
-        <p id="now-playing" class="now-playing">Select a track</p>
-        <audio id="audio-player" controls preload="metadata"></audio>
+        <div class="cover" aria-hidden="true">
+          <img id="cover-art" alt="" hidden>
+          <span id="cover-placeholder">♪</span>
+        </div>
+        <div>
+          <p id="now-playing" class="now-playing">Select a track</p>
+          <audio id="audio-player" controls preload="metadata"></audio>
+        </div>
       </section>
 
       <p id="status" class="status">Loading tracks...</p>

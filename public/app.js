@@ -4,6 +4,8 @@ const trackList = document.getElementById('track-list');
 const statusMessage = document.getElementById('status');
 const audioPlayer = document.getElementById('audio-player');
 const nowPlaying = document.getElementById('now-playing');
+const coverArt = document.getElementById('cover-art');
+const coverPlaceholder = document.getElementById('cover-placeholder');
 
 function formatDuration(duration) {
   if (!Number.isInteger(duration)) {
@@ -31,9 +33,22 @@ function setActiveTrack(button) {
 function playTrack(track, button) {
   setActiveTrack(button);
   nowPlaying.textContent = `${track.title} - ${formatMeta(track)}`;
+  coverPlaceholder.hidden = false;
+  coverArt.hidden = true;
+  coverArt.src = `/tracks/${track.id}/cover`;
   audioPlayer.src = `/stream/${track.id}`;
   audioPlayer.play().catch(() => {});
 }
+
+coverArt.addEventListener('load', () => {
+  coverPlaceholder.hidden = true;
+  coverArt.hidden = false;
+});
+
+coverArt.addEventListener('error', () => {
+  coverArt.hidden = true;
+  coverPlaceholder.hidden = false;
+});
 
 function renderTrack(track) {
   const button = document.createElement('button');
