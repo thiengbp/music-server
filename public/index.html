@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Music Server</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, sans-serif;
+        background: #f5f6f8;
+        color: #20242a;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 32px 20px;
+      }
+
+      h1 {
+        margin: 0 0 24px;
+        font-size: 28px;
+      }
+
+      .player {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        padding: 16px 0;
+        background: #f5f6f8;
+        border-bottom: 1px solid #d9dde3;
+      }
+
+      .now-playing {
+        margin: 0 0 10px;
+        min-height: 20px;
+        font-weight: 700;
+      }
+
+      audio {
+        width: 100%;
+      }
+
+      .status {
+        margin: 20px 0;
+        color: #666f7a;
+      }
+
+      .track-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 20px;
+      }
+
+      .track {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 16px;
+        align-items: center;
+        width: 100%;
+        padding: 12px 14px;
+        border: 1px solid #d9dde3;
+        border-radius: 6px;
+        background: #fff;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .track:hover,
+      .track:focus {
+        border-color: #2f6fed;
+        outline: none;
+      }
+
+      .track.active {
+        border-color: #2f6fed;
+        background: #eef4ff;
+      }
+
+      .title {
+        display: block;
+        font-weight: 700;
+      }
+
+      .meta {
+        display: block;
+        margin-top: 4px;
+        color: #666f7a;
+        font-size: 14px;
+      }
+
+      .duration {
+        color: #666f7a;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Music Server</h1>
+
+      <section class="player">
+        <p id="now-playing" class="now-playing">Select a track</p>
+        <audio id="audio-player" controls preload="metadata"></audio>
+      </section>
+
+      <p id="status" class="status">Loading tracks...</p>
+      <section id="track-list" class="track-list" aria-label="Tracks"></section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
