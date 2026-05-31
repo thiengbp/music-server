@@ -91,8 +91,78 @@ function validateCreateTrackPayload(body) {
   };
 }
 
+function parseLimit(value) {
+  if (value === undefined) {
+    return 50;
+  }
+
+  const limit = Number(value);
+
+  if (!Number.isInteger(limit) || limit <= 0) {
+    return null;
+  }
+
+  return Math.min(limit, 200);
+}
+
+function parseOffset(value) {
+  if (value === undefined) {
+    return 0;
+  }
+
+  const offset = Number(value);
+
+  if (!Number.isInteger(offset) || offset < 0) {
+    return null;
+  }
+
+  return offset;
+}
+
+function addTextFilter(whereClauses, params, column, value) {
+  if (!isNonEmptyString(value)) {
+    return;
+  }
+
+  whereClauses.push(`${column} LIKE ?`);
+  params.push(`%${value.trim()}%`);
+}
+
+function buildTrackListQuery(query) {
+  const whereClauses = [];
+  const params = [];
+
+  if (isNonEmptyString(query.search)) {
+    const searchValue = `%${query.search.trim()}%`;
+    whereClauses.push('(title LIKE ? OR artist LIKE ? OR album LIKE ?)');
+    params.push(searchValue, searchValue, searchValue);
+  }
+
+  addTextFilter(whereClauses, params, 'artist', query.artist);
+  addTextFilter(whereClauses, params, 'album', query.album);
+
+  const whereSql = whereClauses.length > 0
+    ? `WHERE ${whereClauses.join(' AND ')}`
+    : '';
+
+  return {
+    whereSql,
+    params
+  };
+}
+
 async function listTracks(req, res) {
+  const limit = parseLimit(req.query.limit);
+  const offset = parseOffset(req.query.offset);
+
+  if (limit === null || offset === null) {
+    return res.status(400).json({
+      error: 'Invalid pagination parameters'
+    });
+  }
+
   try {
+    const { whereSql, params } = buildTrackListQuery(req.query);
     const tracks = await dbAll(`
       SELECT
         id,
@@ -103,10 +173,20 @@ async function listTracks(req, res) {
         duration,
         created_at
       FROM tracks
+      ${whereSql}
       ORDER BY created_at DESC, id DESC
-    `);
+      LIMIT ?
+      OFFSET ?
+    `, [...params, limit, offset]);
 
-    res.json({ tracks });
+    res.json({
+      tracks,
+      pagination: {
+        limit,
+        offset,
+        count: tracks.length
+      }
+    });
   } catch (err) {
     res.status(500).json({
       error: 'Failed to load tracks',
