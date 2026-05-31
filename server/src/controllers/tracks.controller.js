@@ -20,6 +20,18 @@ function dbGet(sql, params = []) {
   });
 }
 
+function dbRun(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function onRun(err) {
+      if (err) return reject(err);
+      resolve({
+        id: this.lastID,
+        changes: this.changes
+      });
+    });
+  });
+}
+
 function parseTrackId(id) {
   const trackId = Number(id);
 
@@ -28,6 +40,55 @@ function parseTrackId(id) {
   }
 
   return trackId;
+}
+
+function isNonEmptyString(value) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function normalizeOptionalString(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmedValue = value.trim();
+  return trimmedValue.length > 0 ? trimmedValue : null;
+}
+
+function validateCreateTrackPayload(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return null;
+  }
+
+  if (!isNonEmptyString(body.title) || !isNonEmptyString(body.file_path)) {
+    return null;
+  }
+
+  const artist = normalizeOptionalString(body.artist);
+  const album = normalizeOptionalString(body.album);
+
+  if (artist === undefined || album === undefined) {
+    return null;
+  }
+
+  if (
+    body.duration !== undefined &&
+    (!Number.isInteger(body.duration) || body.duration < 0)
+  ) {
+    return null;
+  }
+
+  return {
+    title: body.title.trim(),
+    artist,
+    album,
+    file_path: body.file_path.trim(),
+    duration: body.duration === undefined ? null : body.duration
+  };
 }
 
 async function listTracks(req, res) {
@@ -49,6 +110,60 @@ async function listTracks(req, res) {
   } catch (err) {
     res.status(500).json({
       error: 'Failed to load tracks',
+      message: err.message
+    });
+  }
+}
+
+async function createTrack(req, res) {
+  const trackPayload = validateCreateTrackPayload(req.body);
+
+  if (!trackPayload) {
+    return res.status(400).json({
+      error: 'Invalid track data'
+    });
+  }
+
+  try {
+    const result = await dbRun(`
+      INSERT INTO tracks (
+        title,
+        artist,
+        album,
+        file_path,
+        duration
+      ) VALUES (?, ?, ?, ?, ?)
+    `, [
+      trackPayload.title,
+      trackPayload.artist,
+      trackPayload.album,
+      trackPayload.file_path,
+      trackPayload.duration
+    ]);
+
+    const track = await dbGet(`
+      SELECT
+        id,
+        title,
+        artist,
+        album,
+        file_path,
+        duration,
+        created_at
+      FROM tracks
+      WHERE id = ?
+    `, [result.id]);
+
+    return res.status(201).json({ track });
+  } catch (err) {
+    if (err.code === 'SQLITE_CONSTRAINT') {
+      return res.status(409).json({
+        error: 'Track file already exists'
+      });
+    }
+
+    return res.status(500).json({
+      error: 'Failed to create track',
       message: err.message
     });
   }
@@ -94,5 +209,6 @@ async function getTrackById(req, res) {
 
 module.exports = {
   listTracks,
+  createTrack,
   getTrackById
 };
