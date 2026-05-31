@@ -3,6 +3,7 @@
 const fs = require('fs/promises');
 const path = require('path');
 const db = require('../config/database');
+const metadataService = require('./metadata.service');
 
 const AUDIO_EXTENSIONS = new Set(['.mp3', '.flac', '.m4a', '.wav']);
 
@@ -20,10 +21,6 @@ function dbRun(sql, params = []) {
 
 function isAudioFile(filePath) {
   return AUDIO_EXTENSIONS.has(path.extname(filePath).toLowerCase());
-}
-
-function titleFromFilePath(filePath) {
-  return path.basename(filePath, path.extname(filePath));
 }
 
 async function collectAudioFiles(directoryPath) {
@@ -51,6 +48,8 @@ async function collectAudioFiles(directoryPath) {
 }
 
 async function insertTrackIfMissing(filePath) {
+  const metadata = await metadataService.readMetadata(filePath);
+
   const result = await dbRun(`
     INSERT OR IGNORE INTO tracks (
       title,
@@ -60,11 +59,11 @@ async function insertTrackIfMissing(filePath) {
       duration
     ) VALUES (?, ?, ?, ?, ?)
   `, [
-    titleFromFilePath(filePath),
-    null,
-    null,
+    metadata.title,
+    metadata.artist,
+    metadata.album,
     filePath,
-    null
+    metadata.duration
   ]);
 
   return result.changes === 1;

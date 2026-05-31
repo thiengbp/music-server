@@ -10,6 +10,7 @@
   "dependencies": {
     "dotenv": "^16.4.5",
     "express": "^5.2.1",
+    "music-metadata": "^11.12.3",
     "sqlite3": "^6.0.1"
   }
 }
