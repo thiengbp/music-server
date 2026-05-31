@@ -134,12 +134,16 @@ function buildTrackListQuery(query) {
 
   if (isNonEmptyString(query.search)) {
     const searchValue = `%${query.search.trim()}%`;
-    whereClauses.push('(title LIKE ? OR artist LIKE ? OR album LIKE ?)');
+    whereClauses.push('(t.title LIKE ? OR t.artist LIKE ? OR t.album LIKE ?)');
     params.push(searchValue, searchValue, searchValue);
   }
 
-  addTextFilter(whereClauses, params, 'artist', query.artist);
-  addTextFilter(whereClauses, params, 'album', query.album);
+  addTextFilter(whereClauses, params, 't.artist', query.artist);
+  addTextFilter(whereClauses, params, 't.album', query.album);
+
+  if (query.favorite === 'true') {
+    whereClauses.push('f.track_id IS NOT NULL');
+  }
 
   const whereSql = whereClauses.length > 0
     ? `WHERE ${whereClauses.join(' AND ')}`
@@ -149,6 +153,36 @@ function buildTrackListQuery(query) {
     whereSql,
     params
   };
+}
+
+function normalizeTrack(track) {
+  if (!track) {
+    return null;
+  }
+
+  return {
+    ...track,
+    is_favorite: Boolean(track.is_favorite)
+  };
+}
+
+async function findTrackById(trackId) {
+  const track = await dbGet(`
+    SELECT
+      t.id,
+      t.title,
+      t.artist,
+      t.album,
+      t.file_path,
+      t.duration,
+      t.created_at,
+      CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
+    FROM tracks t
+    LEFT JOIN favorites f ON f.track_id = t.id
+    WHERE t.id = ?
+  `, [trackId]);
+
+  return normalizeTrack(track);
 }
 
 async function listTracks(req, res) {
@@ -165,22 +199,24 @@ async function listTracks(req, res) {
     const { whereSql, params } = buildTrackListQuery(req.query);
     const tracks = await dbAll(`
       SELECT
-        id,
-        title,
-        artist,
-        album,
-        file_path,
-        duration,
-        created_at
-      FROM tracks
+        t.id,
+        t.title,
+        t.artist,
+        t.album,
+        t.file_path,
+        t.duration,
+        t.created_at,
+        CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
+      FROM tracks t
+      LEFT JOIN favorites f ON f.track_id = t.id
       ${whereSql}
-      ORDER BY created_at DESC, id DESC
+      ORDER BY t.created_at DESC, t.id DESC
       LIMIT ?
       OFFSET ?
     `, [...params, limit, offset]);
 
     res.json({
-      tracks,
+      tracks: tracks.map(normalizeTrack),
       pagination: {
         limit,
         offset,
@@ -223,18 +259,20 @@ async function createTrack(req, res) {
 
     const track = await dbGet(`
       SELECT
-        id,
-        title,
-        artist,
-        album,
-        file_path,
-        duration,
-        created_at
-      FROM tracks
-      WHERE id = ?
+        t.id,
+        t.title,
+        t.artist,
+        t.album,
+        t.file_path,
+        t.duration,
+        t.created_at,
+        CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
+      FROM tracks t
+      LEFT JOIN favorites f ON f.track_id = t.id
+      WHERE t.id = ?
     `, [result.id]);
 
-    return res.status(201).json({ track });
+    return res.status(201).json({ track: normalizeTrack(track) });
   } catch (err) {
     if (err.code === 'SQLITE_CONSTRAINT') {
       return res.status(409).json({
@@ -259,18 +297,7 @@ async function getTrackById(req, res) {
   }
 
   try {
-    const track = await dbGet(`
-      SELECT
-        id,
-        title,
-        artist,
-        album,
-        file_path,
-        duration,
-        created_at
-      FROM tracks
-      WHERE id = ?
-    `, [trackId]);
+    const track = await findTrackById(trackId);
 
     if (!track) {
       return res.status(404).json({
@@ -287,8 +314,111 @@ async function getTrackById(req, res) {
   }
 }
 
+async function favoriteTrack(req, res) {
+  const trackId = parseTrackId(req.params.id);
+
+  if (!trackId) {
+    return res.status(400).json({
+      error: 'Invalid track id'
+    });
+  }
+
+  try {
+    const track = await findTrackById(trackId);
+
+    if (!track) {
+      return res.status(404).json({
+        error: 'Track not found'
+      });
+    }
+
+    await dbRun(`
+      INSERT OR IGNORE INTO favorites (track_id)
+      VALUES (?)
+    `, [trackId]);
+
+    return res.json({
+      track: await findTrackById(trackId)
+    });
+  } catch (err) {
+    return res.status(500).json({
+      error: 'Failed to favorite track',
+      message: err.message
+    });
+  }
+}
+
+async function unfavoriteTrack(req, res) {
+  const trackId = parseTrackId(req.params.id);
+
+  if (!trackId) {
+    return res.status(400).json({
+      error: 'Invalid track id'
+    });
+  }
+
+  try {
+    const track = await findTrackById(trackId);
+
+    if (!track) {
+      return res.status(404).json({
+        error: 'Track not found'
+      });
+    }
+
+    await dbRun(`
+      DELETE FROM favorites
+      WHERE track_id = ?
+    `, [trackId]);
+
+    return res.json({
+      track: await findTrackById(trackId)
+    });
+  } catch (err) {
+    return res.status(500).json({
+      error: 'Failed to unfavorite track',
+      message: err.message
+    });
+  }
+}
+
+async function recordTrackPlay(req, res) {
+  const trackId = parseTrackId(req.params.id);
+
+  if (!trackId) {
+    return res.status(400).json({
+      error: 'Invalid track id'
+    });
+  }
+
+  try {
+    const track = await findTrackById(trackId);
+
+    if (!track) {
+      return res.status(404).json({
+        error: 'Track not found'
+      });
+    }
+
+    await dbRun(`
+      INSERT INTO play_history (track_id)
+      VALUES (?)
+    `, [trackId]);
+
+    return res.status(201).json({ track });
+  } catch (err) {
+    return res.status(500).json({
+      error: 'Failed to record track play',
+      message: err.message
+    });
+  }
+}
+
 module.exports = {
   listTracks,
   createTrack,
-  getTrackById
+  getTrackById,
+  favoriteTrack,
+  unfavoriteTrack,
+  recordTrackPlay
 };

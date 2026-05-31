@@ -57,9 +57,43 @@
         outline: none;
       }
 
+      .filters {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .filter-button {
+        min-height: 38px;
+        padding: 0 14px;
+        border: 1px solid #303846;
+        border-radius: 999px;
+        background: #171c25;
+        color: #edf1f7;
+        cursor: pointer;
+      }
+
+      .filter-button:hover,
+      .filter-button:focus {
+        border-color: #5b8cff;
+        outline: none;
+      }
+
+      .filter-button.active {
+        border-color: #ff6b9a;
+        background: #301928;
+        color: #ffffff;
+      }
+
       .status {
         margin: 0 0 18px;
         color: #99a3b3;
+      }
+
+      .section-title {
+        margin: 30px 0 14px;
+        font-size: 20px;
       }
 
       .track-list {
@@ -69,6 +103,7 @@
       }
 
       .track {
+        position: relative;
         display: grid;
         grid-template-columns: 64px 1fr;
         gap: 12px;
@@ -126,6 +161,7 @@
 
       .track-info {
         min-width: 0;
+        padding-right: 36px;
       }
 
       .title,
@@ -146,6 +182,106 @@
         margin-top: 4px;
         color: #99a3b3;
         font-size: 14px;
+      }
+
+      .favorite-button {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        width: 30px;
+        height: 30px;
+        border: 1px solid #303846;
+        border-radius: 999px;
+        background: #111720;
+        color: #99a3b3;
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+      }
+
+      .favorite-button:hover,
+      .favorite-button:focus {
+        border-color: #ff6b9a;
+        color: #ffffff;
+        outline: none;
+      }
+
+      .favorite-button.active {
+        border-color: #ff6b9a;
+        background: #301928;
+        color: #ff6b9a;
+      }
+
+      .recently-list {
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      }
+
+      .queue-panel {
+        position: fixed;
+        top: 28px;
+        right: 20px;
+        bottom: 172px;
+        z-index: 4;
+        display: grid;
+        grid-template-rows: auto 1fr;
+        width: 280px;
+        min-height: 220px;
+        border: 1px solid #252c38;
+        border-radius: 8px;
+        background: #111720;
+        overflow: hidden;
+      }
+
+      .queue-title {
+        margin: 0;
+        padding: 14px 16px;
+        border-bottom: 1px solid #252c38;
+        font-size: 18px;
+      }
+
+      .queue-list {
+        display: grid;
+        align-content: start;
+        gap: 4px;
+        padding: 8px;
+        overflow-y: auto;
+      }
+
+      .queue-item {
+        display: grid;
+        grid-template-columns: 20px 1fr;
+        gap: 8px;
+        align-items: center;
+        min-height: 38px;
+        padding: 8px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+        color: #c7d0df;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .queue-item:hover,
+      .queue-item:focus {
+        border-color: #5b8cff;
+        outline: none;
+      }
+
+      .queue-item.active {
+        background: #1d2940;
+        color: #ffffff;
+      }
+
+      .queue-icon {
+        color: #5b8cff;
+        text-align: center;
+      }
+
+      .queue-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .player {
@@ -198,7 +334,7 @@
 
       .controls {
         display: grid;
-        grid-template-columns: 40px 40px 1fr;
+        grid-template-columns: 40px 40px 40px 40px 1fr;
         gap: 10px;
         align-items: center;
         margin-top: 10px;
@@ -227,17 +363,35 @@
         opacity: 0.55;
       }
 
+      .control-button.active {
+        border-color: #5b8cff;
+        background: #1d2940;
+        color: #ffffff;
+      }
+
       audio {
         width: 100%;
       }
 
       @media (max-width: 640px) {
         body {
-          padding-bottom: 180px;
+          padding-bottom: 0;
         }
 
         main {
           padding: 22px 14px 36px;
+        }
+
+        .player {
+          position: static;
+        }
+
+        .queue-panel {
+          position: static;
+          width: auto;
+          min-height: 0;
+          max-height: 260px;
+          margin: 0 14px 20px;
         }
 
         .track-list {
@@ -255,7 +409,7 @@
         }
 
         .controls {
-          grid-template-columns: 36px 36px 1fr;
+          grid-template-columns: 36px 36px 36px 36px 1fr;
           gap: 8px;
         }
 
@@ -277,10 +431,26 @@
           placeholder="Search title, artist, album"
           autocomplete="off"
         >
+        <div class="filters" aria-label="Track filters">
+          <button
+            id="favorites-filter"
+            class="filter-button"
+            type="button"
+            aria-pressed="false"
+          >Favorites</button>
+        </div>
       </header>
 
       <p id="status" class="status">Loading tracks...</p>
       <section id="track-list" class="track-list" aria-label="Tracks"></section>
+
+      <h2 class="section-title">Recently Played</h2>
+      <p id="recently-status" class="status">No recently played tracks</p>
+      <section
+        id="recently-list"
+        class="track-list recently-list"
+        aria-label="Recently played"
+      ></section>
     </main>
 
     <section class="player" aria-label="Now playing">
@@ -293,13 +463,20 @@
           <span id="now-title" class="now-title">Select a track</span>
           <span id="now-artist" class="now-artist">Nothing playing</span>
           <div class="controls">
+            <button id="shuffle-button" class="control-button" type="button" aria-label="Shuffle off" aria-pressed="false">↝</button>
             <button id="previous-button" class="control-button" type="button" aria-label="Previous track" disabled>‹</button>
             <button id="next-button" class="control-button" type="button" aria-label="Next track" disabled>›</button>
+            <button id="repeat-button" class="control-button" type="button" aria-label="Repeat off" aria-pressed="false">↻</button>
             <audio id="audio-player" controls preload="metadata"></audio>
           </div>
         </div>
       </div>
     </section>
+
+    <aside class="queue-panel" aria-label="Playback queue">
+      <h2 id="queue-title" class="queue-title">Queue (0)</h2>
+      <div id="queue-list" class="queue-list"></div>
+    </aside>
 
     <script src="/app.js"></script>
   </body>

@@ -7,6 +7,7 @@ const path = require('path');
 const db = require('./config/database');
 const coverRoutes = require('./routes/cover.routes');
 const libraryRoutes = require('./routes/library.routes');
+const recentlyRoutes = require('./routes/recently.routes');
 const streamRoutes = require('./routes/stream.routes');
 const tracksRoutes = require('./routes/tracks.routes');
 
@@ -46,6 +47,7 @@ app.get('/health', async (req, res) => {
 app.use('/tracks', tracksRoutes);
 app.use('/tracks', coverRoutes);
 app.use('/library', libraryRoutes);
+app.use('/recently-played', recentlyRoutes);
 app.use('/stream', streamRoutes);
 
 let isShuttingDown = false;
