@@ -1,0 +1,8 @@
+services:
+  music-server:
+    build: .
+    container_name: music-server
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
