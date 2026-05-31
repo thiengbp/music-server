@@ -6,94 +6,79 @@
     <title>Music Server</title>
     <style>
       :root {
-        color-scheme: light;
+        color-scheme: dark;
         font-family: Arial, sans-serif;
-        background: #f5f6f8;
-        color: #20242a;
+        background: #0e1116;
+        color: #edf1f7;
+      }
+
+      * {
+        box-sizing: border-box;
       }
 
       body {
+        min-height: 100vh;
         margin: 0;
+        padding-bottom: 152px;
+        background: #0e1116;
       }
 
       main {
-        max-width: 960px;
+        max-width: 1120px;
         margin: 0 auto;
-        padding: 32px 20px;
+        padding: 28px 20px 40px;
+      }
+
+      .header {
+        display: grid;
+        gap: 18px;
+        margin-bottom: 24px;
       }
 
       h1 {
-        margin: 0 0 24px;
-        font-size: 28px;
+        margin: 0;
+        font-size: 30px;
+        letter-spacing: 0;
       }
 
-      .player {
-        display: grid;
-        grid-template-columns: 96px 1fr;
-        gap: 16px;
-        align-items: center;
-        position: sticky;
-        top: 0;
-        z-index: 1;
-        padding: 16px 0;
-        background: #f5f6f8;
-        border-bottom: 1px solid #d9dde3;
-      }
-
-      .cover {
-        width: 96px;
-        aspect-ratio: 1;
-        display: grid;
-        place-items: center;
-        border: 1px solid #d9dde3;
-        border-radius: 6px;
-        overflow: hidden;
-        background: #e7eaf0;
-        color: #666f7a;
-        font-weight: 700;
-      }
-
-      .cover img {
+      .search {
         width: 100%;
-        height: 100%;
-        object-fit: cover;
+        min-height: 46px;
+        padding: 0 14px;
+        border: 1px solid #303846;
+        border-radius: 8px;
+        background: #171c25;
+        color: #edf1f7;
+        font-size: 16px;
       }
 
-      .cover img[hidden] {
-        display: none;
-      }
-
-      .now-playing {
-        margin: 0 0 10px;
-        min-height: 20px;
-        font-weight: 700;
-      }
-
-      audio {
-        width: 100%;
+      .search:focus {
+        border-color: #5b8cff;
+        outline: none;
       }
 
       .status {
-        margin: 20px 0;
-        color: #666f7a;
+        margin: 0 0 18px;
+        color: #99a3b3;
       }
 
       .track-list {
         display: grid;
-        gap: 8px;
-        margin-top: 20px;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        gap: 14px;
       }
 
       .track {
         display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 16px;
+        grid-template-columns: 64px 1fr;
+        gap: 12px;
         align-items: center;
         width: 100%;
-        padding: 12px 14px;
-        border: 1px solid #d9dde3;
-        border-radius: 6px;
-        background: #fff;
+        min-height: 92px;
+        padding: 12px;
+        border: 1px solid #252c38;
+        border-radius: 8px;
+        background: #171c25;
         color: inherit;
         text-align: left;
         cursor: pointer;
@@ -101,61 +86,220 @@
 
       .track:hover,
       .track:focus {
-        border-color: #2f6fed;
+        border-color: #5b8cff;
         outline: none;
       }
 
       .track.active {
-        border-color: #2f6fed;
-        background: #eef4ff;
+        border-color: #5b8cff;
+        background: #1d2940;
       }
 
-      .title {
-        display: block;
+      .thumbnail,
+      .player-cover {
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        border-radius: 8px;
+        background: #242b38;
+        color: #8f99aa;
         font-weight: 700;
       }
 
-      .meta {
+      .thumbnail {
+        width: 64px;
+        height: 64px;
+        font-size: 22px;
+      }
+
+      .thumbnail img,
+      .player-cover img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .thumbnail img[hidden],
+      .player-cover img[hidden] {
+        display: none;
+      }
+
+      .track-info {
+        min-width: 0;
+      }
+
+      .title,
+      .meta,
+      .duration {
         display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .title {
+        font-weight: 700;
+      }
+
+      .meta,
+      .duration {
         margin-top: 4px;
-        color: #666f7a;
+        color: #99a3b3;
         font-size: 14px;
       }
 
-      .duration {
-        color: #666f7a;
+      .player {
+        position: fixed;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        z-index: 5;
+        border-top: 1px solid #252c38;
+        background: #111720;
+      }
+
+      .player-inner {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 14px 20px;
+        display: grid;
+        grid-template-columns: 96px 1fr;
+        gap: 16px;
+        align-items: center;
+      }
+
+      .player-cover {
+        width: 96px;
+        height: 96px;
+        font-size: 28px;
+      }
+
+      .now-playing {
+        min-width: 0;
+      }
+
+      .now-title,
+      .now-artist {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .now-title {
+        font-weight: 700;
+      }
+
+      .now-artist {
+        margin-top: 4px;
+        color: #99a3b3;
         font-size: 14px;
+      }
+
+      .controls {
+        display: grid;
+        grid-template-columns: 40px 40px 1fr;
+        gap: 10px;
+        align-items: center;
+        margin-top: 10px;
+      }
+
+      .control-button {
+        width: 40px;
+        height: 40px;
+        border: 1px solid #303846;
+        border-radius: 999px;
+        background: #171c25;
+        color: #edf1f7;
+        font-size: 20px;
+        cursor: pointer;
+      }
+
+      .control-button:hover:not(:disabled),
+      .control-button:focus:not(:disabled) {
+        border-color: #5b8cff;
+        outline: none;
+      }
+
+      .control-button:disabled {
+        color: #5b6370;
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
+      audio {
+        width: 100%;
       }
 
       @media (max-width: 640px) {
-        .player {
-          grid-template-columns: 72px 1fr;
+        body {
+          padding-bottom: 180px;
         }
 
-        .cover {
+        main {
+          padding: 22px 14px 36px;
+        }
+
+        .track-list {
+          grid-template-columns: 1fr;
+        }
+
+        .player-inner {
+          grid-template-columns: 72px 1fr;
+          padding: 12px 14px;
+        }
+
+        .player-cover {
           width: 72px;
+          height: 72px;
+        }
+
+        .controls {
+          grid-template-columns: 36px 36px 1fr;
+          gap: 8px;
+        }
+
+        .control-button {
+          width: 36px;
+          height: 36px;
         }
       }
     </style>
   </head>
   <body>
     <main>
-      <h1>Music Server</h1>
-
-      <section class="player">
-        <div class="cover" aria-hidden="true">
-          <img id="cover-art" alt="" hidden>
-          <span id="cover-placeholder">♪</span>
-        </div>
-        <div>
-          <p id="now-playing" class="now-playing">Select a track</p>
-          <audio id="audio-player" controls preload="metadata"></audio>
-        </div>
-      </section>
+      <header class="header">
+        <h1>Music Server</h1>
+        <input
+          id="search-input"
+          class="search"
+          type="search"
+          placeholder="Search title, artist, album"
+          autocomplete="off"
+        >
+      </header>
 
       <p id="status" class="status">Loading tracks...</p>
       <section id="track-list" class="track-list" aria-label="Tracks"></section>
     </main>
+
+    <section class="player" aria-label="Now playing">
+      <div class="player-inner">
+        <div class="player-cover" aria-hidden="true">
+          <img id="cover-art" alt="" hidden>
+          <span id="cover-placeholder">♪</span>
+        </div>
+        <div class="now-playing">
+          <span id="now-title" class="now-title">Select a track</span>
+          <span id="now-artist" class="now-artist">Nothing playing</span>
+          <div class="controls">
+            <button id="previous-button" class="control-button" type="button" aria-label="Previous track" disabled>‹</button>
+            <button id="next-button" class="control-button" type="button" aria-label="Next track" disabled>›</button>
+            <audio id="audio-player" controls preload="metadata"></audio>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <script src="/app.js"></script>
   </body>
