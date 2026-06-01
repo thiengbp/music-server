@@ -2,6 +2,10 @@
 
 const db = require('../config/database');
 
+const ARTIST_INFO_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const MUSICBRAINZ_TIMEOUT_MS = 3500;
+const artistInfoCache = new Map();
+
 function dbGet(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.get(sql, params, (err, row) => {
@@ -27,6 +31,30 @@ function normalizeArtistName(value) {
 
   const decodedValue = decodeURIComponent(value).trim();
   return decodedValue.length > 0 ? decodedValue : null;
+}
+
+function artistCacheKey(artistName) {
+  return `artist:${artistName.trim().toLowerCase()}`;
+}
+
+function getCachedArtistInfo(artistName) {
+  const cached = artistInfoCache.get(artistCacheKey(artistName));
+
+  if (!cached || Date.now() - cached.cachedAt > ARTIST_INFO_CACHE_TTL_MS) {
+    return null;
+  }
+
+  return {
+    ...cached.data,
+    cached: true
+  };
+}
+
+function setCachedArtistInfo(artistName, data) {
+  artistInfoCache.set(artistCacheKey(artistName), {
+    cachedAt: Date.now(),
+    data
+  });
 }
 
 function inferLocalTags(artistName, tracks) {
@@ -62,6 +90,66 @@ function inferLocalTags(artistName, tracks) {
   return [...new Set(tags)].slice(0, 3);
 }
 
+function normalizeMusicBrainzTags(tags) {
+  if (!Array.isArray(tags)) {
+    return [];
+  }
+
+  return tags
+    .slice()
+    .sort((a, b) => (b.count || 0) - (a.count || 0))
+    .map((tag) => tag.name)
+    .filter((tag) => typeof tag === 'string' && tag.trim().length > 0)
+    .slice(0, 3);
+}
+
+async function fetchMusicBrainzArtistInfo(artistName) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MUSICBRAINZ_TIMEOUT_MS);
+  const url = new URL('https://musicbrainz.org/ws/2/artist/');
+
+  url.searchParams.set('query', `artist:"${artistName}"`);
+  url.searchParams.set('fmt', 'json');
+  url.searchParams.set('limit', '1');
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'music-server/1.0.0 (local-development)'
+      },
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+    const artist = Array.isArray(data.artists) ? data.artists[0] : null;
+
+    if (!artist) {
+      return null;
+    }
+
+    const genres = normalizeMusicBrainzTags(artist.tags);
+
+    return {
+      artist: artist.name || artistName,
+      bio: artist.disambiguation || null,
+      country: artist.country || null,
+      genres,
+      image: null,
+      source: 'musicbrainz',
+      mbid: artist.id || null
+    };
+  } catch (err) {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function getArtistInfo(req, res) {
   const artistName = normalizeArtistName(req.params.name);
 
@@ -72,6 +160,12 @@ async function getArtistInfo(req, res) {
   }
 
   try {
+    const cachedArtistInfo = getCachedArtistInfo(artistName);
+
+    if (cachedArtistInfo) {
+      return res.json(cachedArtistInfo);
+    }
+
     const stats = await dbGet(`
       SELECT
         COUNT(*) AS trackCount,
@@ -96,26 +190,51 @@ async function getArtistInfo(req, res) {
       WHERE COALESCE(NULLIF(TRIM(artist), ''), 'Unknown artist') = ?
       LIMIT 25
     `, [artistName]);
-
-    return res.json({
-      artist: artistName,
-      bio: null,
-      image: null,
-      source: 'Local',
-      tags: inferLocalTags(artistName, tagTracks),
-      country: null,
+    const localTags = inferLocalTags(artistName, tagTracks);
+    const onlineInfo = artistName === 'Unknown artist'
+      ? null
+      : await fetchMusicBrainzArtistInfo(artistName);
+    const genres = onlineInfo && onlineInfo.genres.length > 0
+      ? onlineInfo.genres
+      : localTags;
+    const source = onlineInfo ? onlineInfo.source : 'local';
+    const artistInfo = {
+      artist: onlineInfo ? onlineInfo.artist : artistName,
+      bio: onlineInfo ? onlineInfo.bio : null,
+      country: onlineInfo ? onlineInfo.country : null,
+      genres,
+      image: onlineInfo ? onlineInfo.image : null,
+      source,
+      tags: genres,
       listeners: null,
       playcount: null,
       albumCount: stats ? stats.albumCount : 0,
       trackCount: stats ? stats.trackCount : 0,
       topTracks,
-      updatedAt: new Date().toISOString()
-      // TODO: Enrich this response with MusicBrainz / Last.fm metadata.
-    });
+      updatedAt: new Date().toISOString(),
+      cached: false
+      // TODO: Add optional Last.fm enrichment if an API key is configured.
+    };
+
+    setCachedArtistInfo(artistName, artistInfo);
+
+    return res.json(artistInfo);
   } catch (err) {
-    return res.status(500).json({
-      error: 'Failed to load artist info',
-      message: err.message
+    return res.json({
+      artist: artistName,
+      bio: null,
+      country: null,
+      genres: [],
+      image: null,
+      source: 'local',
+      tags: [],
+      listeners: null,
+      playcount: null,
+      albumCount: 0,
+      trackCount: 0,
+      topTracks: [],
+      updatedAt: new Date().toISOString(),
+      cached: false
     });
   }
 }

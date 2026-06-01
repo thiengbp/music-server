@@ -272,6 +272,10 @@
         color: var(--muted);
         font-size: 11px;
         line-height: 1.35;
+        display: -webkit-box;
+        overflow: hidden;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 3;
       }
 
       .artist-info-sources {
@@ -1318,7 +1322,7 @@
                   <span id="hero-artist-album-count" class="artist-stat-value">—</span>
                 </span>
                 <span class="artist-stat">
-                  <span class="artist-stat-label">Listeners</span>
+                  <span class="artist-stat-label">Country</span>
                   <span id="hero-artist-listeners" class="artist-stat-value">—</span>
                 </span>
               </div>

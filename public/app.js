@@ -12,6 +12,7 @@ const PREVIEW_LIMITS = {
 
 const QUEUE_STORAGE_KEY = 'music-server.queue.v1';
 const PLAYLISTS_STORAGE_KEY = 'music-server.playlists.v1';
+const PLAYER_STATE_STORAGE_KEY = 'music-server.player-state.v1';
 const ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v1';
 const ARTIST_INFO_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -75,11 +76,18 @@ let selectedAlbumName = null;
 let selectedArtistName = null;
 let selectedPlaylistId = null;
 let lastSeenAutoScanAt = null;
-let queueTrackIds = readStoredArray(QUEUE_STORAGE_KEY);
+let savedPlayerState = normalizePlayerState(readStoredObject(PLAYER_STATE_STORAGE_KEY));
+let queueTrackIds = savedPlayerState.queueTrackIds.length > 0
+  ? [...savedPlayerState.queueTrackIds]
+  : readStoredArray(QUEUE_STORAGE_KEY);
 let queueActiveIndex = -1;
 let playlists = normalizePlaylists(readStoredArray(PLAYLISTS_STORAGE_KEY));
 let artistInfoCache = readStoredObject(ARTIST_INFO_CACHE_KEY);
 let activeArtistInfoRequest = null;
+let pendingResumeTime = null;
+let hasRestoredPlayer = false;
+let isRestoringPlayer = false;
+let lastPlayerStateSaveAt = 0;
 const trackRatings = new Map();
 
 const expandedSections = {
@@ -135,13 +143,119 @@ function normalizePlaylists(value) {
     }));
 }
 
+function normalizePlayerState(value) {
+  const repeatValues = new Set(['off', 'all', 'one']);
+  const libraryTabs = new Set([
+    'songs',
+    'albums',
+    'artists',
+    'favorites',
+    'recentAdded',
+    'recent',
+    'playlists',
+    'queue'
+  ]);
+  const volume = Number(value.volume);
+  const currentTime = Number(value.currentTime);
+
+  return {
+    currentTrackId: Number.isInteger(value.currentTrackId) ? value.currentTrackId : null,
+    currentTime: Number.isFinite(currentTime) && currentTime >= 0 ? currentTime : 0,
+    volume: Number.isFinite(volume) && volume >= 0 && volume <= 1 ? volume : 1,
+    shuffle: Boolean(value.shuffle),
+    repeat: repeatValues.has(value.repeat) ? value.repeat : 'off',
+    queueTrackIds: Array.isArray(value.queueTrackIds)
+      ? value.queueTrackIds.filter((trackId) => Number.isInteger(trackId))
+      : [],
+    queueActiveIndex: Number.isInteger(value.queueActiveIndex) ? value.queueActiveIndex : -1,
+    activeLibraryTab: libraryTabs.has(value.activeLibraryTab) ? value.activeLibraryTab : 'songs',
+    selectedPlaylistId: typeof value.selectedPlaylistId === 'string' ? value.selectedPlaylistId : null,
+    paused: value.paused !== false
+  };
+}
+
 function saveQueue() {
   writeStoredArray(QUEUE_STORAGE_KEY, queueTrackIds);
+  savePlayerState();
 }
 
 function savePlaylists() {
   playlists = normalizePlaylists(playlists);
   writeStoredArray(PLAYLISTS_STORAGE_KEY, playlists);
+}
+
+function savePlayerState() {
+  if (isRestoringPlayer) {
+    return;
+  }
+
+  writeStoredObject(PLAYER_STATE_STORAGE_KEY, {
+    currentTrackId: activeTrackId,
+    currentTime: Number.isFinite(audioPlayer.currentTime) ? audioPlayer.currentTime : 0,
+    volume: Number.isFinite(audioPlayer.volume) ? audioPlayer.volume : Number(volumeInput.value),
+    shuffle: isShuffleEnabled,
+    repeat: repeatMode,
+    queueTrackIds,
+    queueActiveIndex,
+    activeLibraryTab,
+    selectedPlaylistId,
+    paused: audioPlayer.paused,
+    updatedAt: new Date().toISOString()
+  });
+}
+
+function savePlayerStateThrottled() {
+  const now = Date.now();
+
+  if (now - lastPlayerStateSaveAt < 1000) {
+    return;
+  }
+
+  lastPlayerStateSaveAt = now;
+  savePlayerState();
+}
+
+function restoreSavedPreferences() {
+  isShuffleEnabled = savedPlayerState.shuffle;
+  repeatMode = savedPlayerState.repeat;
+  audioPlayer.volume = savedPlayerState.volume;
+  volumeInput.value = String(savedPlayerState.volume);
+  activeLibraryTab = savedPlayerState.activeLibraryTab;
+  selectedPlaylistId = savedPlayerState.selectedPlaylistId;
+}
+
+function restorePlayerFromState() {
+  if (hasRestoredPlayer) {
+    return;
+  }
+
+  hasRestoredPlayer = true;
+
+  if (!savedPlayerState.currentTrackId) {
+    return;
+  }
+
+  const track = findTrackById(savedPlayerState.currentTrackId);
+
+  if (!track) {
+    return;
+  }
+
+  isRestoringPlayer = true;
+  activeTrackId = track.id;
+  currentTrackIndex = tracks.findIndex((currentTrack) => currentTrack.id === track.id);
+  queueActiveIndex = savedPlayerState.queueActiveIndex >= 0 &&
+    queueTrackIds[savedPlayerState.queueActiveIndex] === track.id
+    ? savedPlayerState.queueActiveIndex
+    : -1;
+  pendingResumeTime = savedPlayerState.currentTime;
+  loadTrackIntoPlayer(track);
+  audioPlayer.pause();
+  renderLibrary();
+  syncActiveTrack();
+  updateQueueControls();
+  updatePlayButton();
+  isRestoringPlayer = false;
 }
 
 function formatDuration(duration) {
@@ -184,6 +298,7 @@ function emptyArtistInfo(artistName = 'No artist selected') {
     image: null,
     source: null,
     tags: [],
+    genres: [],
     country: null,
     listeners: null,
     playcount: null,
@@ -240,12 +355,19 @@ function saveArtistInfoToCache(info) {
 }
 
 function normalizeArtistInfoPayload(payload, artistName) {
+  const genres = Array.isArray(payload.genres)
+    ? payload.genres
+    : Array.isArray(payload.tags)
+      ? payload.tags
+      : [];
+
   return {
     artistName: payload.artist || artistName,
     bio: payload.bio || null,
     image: payload.image || null,
-    source: payload.source || 'Local',
-    tags: Array.isArray(payload.tags) ? payload.tags : [],
+    source: payload.source || 'local',
+    tags: genres,
+    genres,
     country: payload.country || null,
     listeners: payload.listeners,
     playcount: payload.playcount,
@@ -259,10 +381,15 @@ function normalizeArtistInfoPayload(payload, artistName) {
 }
 
 function renderSourceBadges(info) {
+  const sourceLabels = {
+    local: 'Local',
+    musicbrainz: 'MusicBrainz',
+    lastfm: 'Last.fm'
+  };
   const sources = [];
 
   if (info.source) {
-    sources.push(info.source);
+    sources.push(sourceLabels[info.source] || info.source);
   }
 
   heroArtistInfoSources.replaceChildren(
@@ -285,16 +412,14 @@ function renderHeroArtistInfo(info) {
   heroArtistAvatar.textContent = artistInitials(artistInfo.artistName);
   heroArtistInfoBio.textContent = artistInfo.loading
     ? 'Loading artist info...'
-    : artistInfo.bio || 'Artist biography and stats will appear here.';
+    : artistInfo.bio || 'Additional artist information is unavailable.';
   heroArtistTrackCount.textContent = Number.isInteger(artistInfo.trackCount)
     ? String(artistInfo.trackCount)
     : '—';
   heroArtistAlbumCount.textContent = Number.isInteger(artistInfo.albumCount)
     ? String(artistInfo.albumCount)
     : '—';
-  heroArtistListeners.textContent = Number.isInteger(artistInfo.listeners)
-    ? String(artistInfo.listeners)
-    : '—';
+  heroArtistListeners.textContent = artistInfo.country || '—';
   heroArtistTags.textContent = artistInfo.error
     ? artistInfo.error
     : visibleTags.length > 0
@@ -676,6 +801,7 @@ function setCurrentTrackIndex(index) {
   renderQueue();
   syncActiveTrack();
   updateQueueControls();
+  savePlayerState();
 }
 
 function setCurrentQueueIndex(index) {
@@ -687,6 +813,7 @@ function setCurrentQueueIndex(index) {
   renderQueue();
   syncActiveTrack();
   updateQueueControls();
+  savePlayerState();
 }
 
 function playTrackAt(index) {
@@ -816,6 +943,7 @@ function toggleShuffle() {
   isShuffleEnabled = !isShuffleEnabled;
   updateQueueControls();
   renderQueue();
+  savePlayerState();
 }
 
 function cycleRepeatMode() {
@@ -828,6 +956,7 @@ function cycleRepeatMode() {
   }
 
   updateQueueControls();
+  savePlayerState();
 }
 
 function togglePlayPause() {
@@ -1224,6 +1353,7 @@ function setActiveLibraryTab(tabName) {
   document.querySelectorAll('[data-library-panel]').forEach((panel) => {
     panel.classList.toggle('active', panel.dataset.libraryPanel === tabName);
   });
+  savePlayerState();
 }
 
 function renderSongs() {
@@ -1417,6 +1547,7 @@ function renderPlaylistCard(playlist) {
   );
   button.addEventListener('click', () => {
     selectedPlaylistId = playlist.id;
+    savePlayerState();
     renderPlaylists();
   });
 
@@ -1456,6 +1587,7 @@ function renderPlaylistDetail(playlistId) {
   backButton.textContent = 'All playlists';
   backButton.addEventListener('click', () => {
     selectedPlaylistId = null;
+    savePlayerState();
     renderPlaylists();
   });
 
@@ -1567,6 +1699,7 @@ async function loadTracks(searchValue = '') {
     statusMessage.textContent = tracks.length === 0
       ? 'No tracks found'
       : `${tracks.length} tracks`;
+    restorePlayerFromState();
   } catch (err) {
     statusMessage.textContent = err.message;
   }
@@ -1769,19 +1902,40 @@ document.querySelectorAll('[data-view-more]').forEach((button) => {
 progressInput.addEventListener('input', () => {
   audioPlayer.currentTime = Number(progressInput.value);
   updateProgress();
+  savePlayerState();
 });
 
 volumeInput.addEventListener('input', () => {
   audioPlayer.volume = Number(volumeInput.value);
+  savePlayerState();
 });
 
-audioPlayer.addEventListener('loadedmetadata', updateProgress);
+audioPlayer.addEventListener('loadedmetadata', () => {
+  if (pendingResumeTime !== null) {
+    const duration = Number.isFinite(audioPlayer.duration) ? audioPlayer.duration : pendingResumeTime;
+    audioPlayer.currentTime = Math.min(pendingResumeTime, duration);
+    pendingResumeTime = null;
+    savePlayerState();
+  }
+
+  updateProgress();
+});
 audioPlayer.addEventListener('durationchange', updateProgress);
-audioPlayer.addEventListener('timeupdate', updateProgress);
-audioPlayer.addEventListener('play', updatePlayButton);
-audioPlayer.addEventListener('pause', updatePlayButton);
+audioPlayer.addEventListener('timeupdate', () => {
+  updateProgress();
+  savePlayerStateThrottled();
+});
+audioPlayer.addEventListener('play', () => {
+  updatePlayButton();
+  savePlayerState();
+});
+audioPlayer.addEventListener('pause', () => {
+  updatePlayButton();
+  savePlayerState();
+});
 audioPlayer.addEventListener('volumechange', () => {
   volumeInput.value = String(audioPlayer.volume);
+  savePlayerState();
 });
 
 audioPlayer.addEventListener('ended', () => {
@@ -1847,6 +2001,7 @@ document.addEventListener('keydown', (event) => {
 });
 
 document.addEventListener('click', closeActionMenus);
+window.addEventListener('beforeunload', savePlayerState);
 
 searchInput.addEventListener('input', () => {
   clearTimeout(searchTimer);
@@ -1856,6 +2011,7 @@ searchInput.addEventListener('input', () => {
   }, 300);
 });
 
+restoreSavedPreferences();
 updatePlayButton();
 updateProgress();
 setActiveLibraryTab(activeLibraryTab);
