@@ -12,6 +12,8 @@ const PREVIEW_LIMITS = {
 
 const QUEUE_STORAGE_KEY = 'music-server.queue.v1';
 const PLAYLISTS_STORAGE_KEY = 'music-server.playlists.v1';
+const ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v1';
+const ARTIST_INFO_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 const trackList = document.getElementById('track-list');
 const albumsList = document.getElementById('albums-list');
@@ -49,6 +51,14 @@ const heroCoverPlaceholder = document.getElementById('hero-cover-placeholder');
 const heroTitle = document.getElementById('hero-title');
 const heroMeta = document.getElementById('hero-meta');
 const heroArtistInfoTitle = document.getElementById('hero-artist-info-title');
+const heroArtistInfoBio = document.getElementById('hero-artist-info-bio');
+const heroArtistInfoSources = document.getElementById('hero-artist-info-sources');
+const heroArtistTrackCount = document.getElementById('hero-artist-track-count');
+const heroArtistAlbumCount = document.getElementById('hero-artist-album-count');
+const heroArtistListeners = document.getElementById('hero-artist-listeners');
+const heroArtistTags = document.getElementById('hero-artist-tags');
+const heroArtistTopTracks = document.getElementById('hero-artist-top-tracks');
+const heroArtistAvatar = document.getElementById('hero-artist-avatar');
 const heroPlayButton = document.getElementById('hero-play-button');
 const heroShuffleButton = document.getElementById('hero-shuffle-button');
 
@@ -68,6 +78,8 @@ let lastSeenAutoScanAt = null;
 let queueTrackIds = readStoredArray(QUEUE_STORAGE_KEY);
 let queueActiveIndex = -1;
 let playlists = normalizePlaylists(readStoredArray(PLAYLISTS_STORAGE_KEY));
+let artistInfoCache = readStoredObject(ARTIST_INFO_CACHE_KEY);
+let activeArtistInfoRequest = null;
 const trackRatings = new Map();
 
 const expandedSections = {
@@ -90,7 +102,20 @@ function readStoredArray(key) {
   }
 }
 
+function readStoredObject(key) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || '{}');
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch (err) {
+    return {};
+  }
+}
+
 function writeStoredArray(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function writeStoredObject(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
@@ -146,6 +171,204 @@ function formatArtist(track) {
 
 function formatAlbum(track) {
   return track.album || 'Unknown album';
+}
+
+function isUnknownArtistName(artistName) {
+  return !artistName || artistName === 'Unknown artist';
+}
+
+function emptyArtistInfo(artistName = 'No artist selected') {
+  return {
+    artistName,
+    bio: null,
+    image: null,
+    source: null,
+    tags: [],
+    country: null,
+    listeners: null,
+    playcount: null,
+    albumCount: null,
+    trackCount: null,
+    topTracks: [],
+    loading: false,
+    error: null,
+    updatedAt: null
+  };
+}
+
+function artistInitials(artistName) {
+  if (isUnknownArtistName(artistName) || artistName === 'No artist selected') {
+    return '—';
+  }
+
+  const words = artistName
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (words.length === 0) {
+    return '—';
+  }
+
+  return words
+    .slice(0, 2)
+    .map((word) => word[0].toUpperCase())
+    .join('');
+}
+
+function cacheKeyForArtist(artistName) {
+  return artistName.trim().toLowerCase();
+}
+
+function isFreshArtistInfo(info) {
+  if (!info || !info.updatedAt) {
+    return false;
+  }
+
+  const updatedAt = Date.parse(info.updatedAt);
+  return Number.isFinite(updatedAt) && Date.now() - updatedAt < ARTIST_INFO_CACHE_TTL_MS;
+}
+
+function saveArtistInfoToCache(info) {
+  if (!info || isUnknownArtistName(info.artistName)) {
+    return;
+  }
+
+  artistInfoCache[cacheKeyForArtist(info.artistName)] = info;
+  writeStoredObject(ARTIST_INFO_CACHE_KEY, artistInfoCache);
+}
+
+function normalizeArtistInfoPayload(payload, artistName) {
+  return {
+    artistName: payload.artist || artistName,
+    bio: payload.bio || null,
+    image: payload.image || null,
+    source: payload.source || 'Local',
+    tags: Array.isArray(payload.tags) ? payload.tags : [],
+    country: payload.country || null,
+    listeners: payload.listeners,
+    playcount: payload.playcount,
+    albumCount: Number.isInteger(payload.albumCount) ? payload.albumCount : null,
+    trackCount: Number.isInteger(payload.trackCount) ? payload.trackCount : null,
+    topTracks: Array.isArray(payload.topTracks) ? payload.topTracks : [],
+    loading: false,
+    error: null,
+    updatedAt: payload.updatedAt || new Date().toISOString()
+  };
+}
+
+function renderSourceBadges(info) {
+  const sources = [];
+
+  if (info.source) {
+    sources.push(info.source);
+  }
+
+  heroArtistInfoSources.replaceChildren(
+    ...(sources.length > 0 ? sources : ['Local']).map((source) => {
+      const badge = document.createElement('span');
+      badge.className = 'artist-source-pill';
+      badge.textContent = source;
+      return badge;
+    })
+  );
+}
+
+function renderHeroArtistInfo(info) {
+  const artistInfo = info || emptyArtistInfo();
+  const visibleTags = artistInfo.tags && artistInfo.tags.length > 0
+    ? artistInfo.tags.slice(0, 3)
+    : [];
+
+  heroArtistInfoTitle.textContent = artistInfo.artistName;
+  heroArtistAvatar.textContent = artistInitials(artistInfo.artistName);
+  heroArtistInfoBio.textContent = artistInfo.loading
+    ? 'Loading artist info...'
+    : artistInfo.bio || 'Artist biography and stats will appear here.';
+  heroArtistTrackCount.textContent = Number.isInteger(artistInfo.trackCount)
+    ? String(artistInfo.trackCount)
+    : '—';
+  heroArtistAlbumCount.textContent = Number.isInteger(artistInfo.albumCount)
+    ? String(artistInfo.albumCount)
+    : '—';
+  heroArtistListeners.textContent = Number.isInteger(artistInfo.listeners)
+    ? String(artistInfo.listeners)
+    : '—';
+  heroArtistTags.textContent = artistInfo.error
+    ? artistInfo.error
+    : visibleTags.length > 0
+      ? visibleTags.join(' · ')
+      : 'Data will be provided by MusicBrainz / Last.fm in a future phase.';
+  heroArtistTopTracks.replaceChildren();
+
+  if (artistInfo.topTracks && artistInfo.topTracks.length > 0) {
+    const label = document.createElement('span');
+
+    label.className = 'artist-top-tracks-title';
+    label.textContent = 'Top Tracks';
+    heroArtistTopTracks.append(label);
+    artistInfo.topTracks.slice(0, 3).forEach((track) => {
+      const item = document.createElement('span');
+
+      item.className = 'artist-top-track';
+      item.textContent = track.title;
+      heroArtistTopTracks.append(item);
+    });
+  }
+
+  renderSourceBadges(artistInfo);
+}
+
+async function loadArtistInfoForTrack(track) {
+  const artistName = formatArtist(track);
+
+  if (isUnknownArtistName(artistName)) {
+    activeArtistInfoRequest = null;
+    renderHeroArtistInfo(emptyArtistInfo());
+    return;
+  }
+
+  const cacheKey = cacheKeyForArtist(artistName);
+  const cachedInfo = artistInfoCache[cacheKey];
+
+  if (isFreshArtistInfo(cachedInfo)) {
+    renderHeroArtistInfo(cachedInfo);
+    return;
+  }
+
+  activeArtistInfoRequest = artistName;
+  renderHeroArtistInfo({
+    ...emptyArtistInfo(artistName),
+    loading: true
+  });
+
+  try {
+    const response = await fetch(`/artists/${encodeURIComponent(artistName)}/info`);
+
+    if (!response.ok) {
+      throw new Error(`Failed to load artist info: ${response.status}`);
+    }
+
+    const payload = await response.json();
+
+    if (activeArtistInfoRequest !== artistName) {
+      return;
+    }
+
+    const artistInfo = normalizeArtistInfoPayload(payload, artistName);
+    saveArtistInfoToCache(artistInfo);
+    renderHeroArtistInfo(artistInfo);
+  } catch (err) {
+    if (activeArtistInfoRequest !== artistName) {
+      return;
+    }
+
+    renderHeroArtistInfo({
+      ...emptyArtistInfo(artistName),
+      error: 'Artist info is unavailable.'
+    });
+  }
 }
 
 function findTrackById(trackId) {
@@ -311,9 +534,9 @@ function loadTrackIntoPlayer(track) {
   nowArtist.textContent = formatArtist(track);
   heroTitle.textContent = track.title;
   heroMeta.textContent = `${formatArtist(track)} • ${formatAlbum(track)}`;
-  heroArtistInfoTitle.textContent = formatArtist(track);
   setCoverImage(coverArt, coverPlaceholder, track.id);
   setCoverImage(heroCoverArt, heroCoverPlaceholder, track.id);
+  loadArtistInfoForTrack(track);
   audioPlayer.src = `/stream/${track.id}`;
   updateProgress();
 }
@@ -1075,6 +1298,7 @@ function renderArtists() {
 
 function renderArtistDetail(artistName) {
   const artistTracks = tracks.filter((track) => formatArtist(track) === artistName);
+  const cachedInfo = artistInfoCache[cacheKeyForArtist(artistName)];
   const header = document.createElement('div');
   const backButton = document.createElement('button');
   const copy = document.createElement('div');
@@ -1095,7 +1319,9 @@ function renderArtistDetail(artistName) {
   title.className = 'detail-title artist-detail-title';
   title.textContent = artistName;
   meta.className = 'detail-meta artist-detail-meta';
-  meta.textContent = `${artistTracks.length} ${artistTracks.length === 1 ? 'song' : 'songs'}`;
+  meta.textContent = cachedInfo && Number.isInteger(cachedInfo.albumCount)
+    ? `${artistTracks.length} ${artistTracks.length === 1 ? 'song' : 'songs'} · ${cachedInfo.albumCount} ${cachedInfo.albumCount === 1 ? 'album' : 'albums'}`
+    : `${artistTracks.length} ${artistTracks.length === 1 ? 'song' : 'songs'}`;
   copy.append(title, meta);
 
   list.className = 'detail-track-grid artist-detail-list';

@@ -331,6 +331,27 @@
         line-height: 1.35;
       }
 
+      .artist-top-tracks {
+        display: grid;
+        gap: 2px;
+        margin-top: 6px;
+      }
+
+      .artist-top-tracks-title {
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 760;
+        text-transform: uppercase;
+      }
+
+      .artist-top-track {
+        overflow: hidden;
+        color: var(--text);
+        font-size: 10px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
       .artist-avatar-placeholder {
         justify-self: end;
         display: grid;
@@ -340,10 +361,10 @@
         border: 1px solid rgba(255, 255, 255, 0.12);
         border-radius: 50%;
         background:
-          radial-gradient(circle at 50% 34%, rgba(255, 255, 255, 0.24) 0 17%, transparent 18%),
-          radial-gradient(circle at 50% 82%, rgba(255, 255, 255, 0.18) 0 30%, transparent 31%),
           linear-gradient(135deg, rgba(255, 45, 85, 0.24), rgba(255, 255, 255, 0.05));
-        color: transparent;
+        color: rgba(255, 255, 255, 0.84);
+        font-size: 16px;
+        font-weight: 800;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
       }
 
@@ -1283,28 +1304,28 @@
             <div>
               <p class="artist-info-label">Artist Info</p>
               <span id="hero-artist-info-title" class="artist-info-title">No artist selected</span>
-              <p class="artist-info-copy">Artist biography and stats will appear here.</p>
-              <div class="artist-info-sources" aria-label="Future artist data sources">
-                <span class="artist-source-pill">MusicBrainz</span>
-                <span class="artist-source-pill">Last.fm</span>
+              <p id="hero-artist-info-bio" class="artist-info-copy">Artist biography and stats will appear here.</p>
+              <div id="hero-artist-info-sources" class="artist-info-sources" aria-label="Artist data sources">
+                <span class="artist-source-pill">Local</span>
               </div>
               <div class="artist-stats" aria-label="Artist stats">
                 <span class="artist-stat">
-                  <span class="artist-stat-label">Listeners</span>
-                  <span class="artist-stat-value">—</span>
-                </span>
-                <span class="artist-stat">
-                  <span class="artist-stat-label">Plays</span>
-                  <span class="artist-stat-value">—</span>
+                  <span class="artist-stat-label">Tracks</span>
+                  <span id="hero-artist-track-count" class="artist-stat-value">—</span>
                 </span>
                 <span class="artist-stat">
                   <span class="artist-stat-label">Albums</span>
-                  <span class="artist-stat-value">—</span>
+                  <span id="hero-artist-album-count" class="artist-stat-value">—</span>
+                </span>
+                <span class="artist-stat">
+                  <span class="artist-stat-label">Listeners</span>
+                  <span id="hero-artist-listeners" class="artist-stat-value">—</span>
                 </span>
               </div>
-              <p class="artist-future-note">Data will be provided by MusicBrainz / Last.fm in a future phase.</p>
+              <p id="hero-artist-tags" class="artist-future-note">Data will be provided by MusicBrainz / Last.fm in a future phase.</p>
+              <div id="hero-artist-top-tracks" class="artist-top-tracks" aria-label="Artist top tracks"></div>
             </div>
-            <div class="artist-avatar-placeholder" aria-hidden="true">Artist avatar placeholder</div>
+            <div id="hero-artist-avatar" class="artist-avatar-placeholder" aria-hidden="true">—</div>
           </aside>
         </section>
 

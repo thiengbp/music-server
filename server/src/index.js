@@ -5,6 +5,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const db = require('./config/database');
+const artistRoutes = require('./routes/artists.routes');
 const coverRoutes = require('./routes/cover.routes');
 const libraryRoutes = require('./routes/library.routes');
 const recentlyRoutes = require('./routes/recently.routes');
@@ -47,6 +48,7 @@ app.get('/health', async (req, res) => {
 
 app.use('/tracks', tracksRoutes);
 app.use('/tracks', coverRoutes);
+app.use('/artists', artistRoutes);
 app.use('/library', libraryRoutes);
 app.use('/recently-played', recentlyRoutes);
 app.use('/stream', streamRoutes);
