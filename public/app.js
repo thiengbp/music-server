@@ -12,9 +12,14 @@ const PREVIEW_LIMITS = {
 
 const QUEUE_STORAGE_KEY = 'music-server.queue.v1';
 const PLAYLISTS_STORAGE_KEY = 'music-server.playlists.v1';
+const PLAYLISTS_BACKUP_STORAGE_KEY = `${PLAYLISTS_STORAGE_KEY}.backup`;
 const PLAYER_STATE_STORAGE_KEY = 'music-server.player-state.v1';
+const RECENT_TRACKS_STORAGE_KEY = 'music-server.recent-tracks.v1';
+const LEARNED_DURATIONS_STORAGE_KEY = 'music-server.learned-durations.v1';
 const ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v1';
 const ARTIST_INFO_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const COVER_URL_VERSION = 'v2';
+const RECENT_TRACK_LIMIT = 50;
 
 const trackList = document.getElementById('track-list');
 const albumsList = document.getElementById('albums-list');
@@ -86,7 +91,8 @@ let queueHistory = Array.isArray(savedPlayerState.queueHistory)
   ? [...savedPlayerState.queueHistory]
   : [];
 let playbackContext = normalizePlaybackContext(savedPlayerState.playbackContext);
-let playlists = normalizePlaylists(readStoredArray(PLAYLISTS_STORAGE_KEY));
+let playlists = readStoredPlaylists();
+let recentTrackIds = normalizeTrackIds(readStoredArray(RECENT_TRACKS_STORAGE_KEY), RECENT_TRACK_LIMIT);
 let artistInfoCache = readStoredObject(ARTIST_INFO_CACHE_KEY);
 let activeArtistInfoRequest = null;
 let pendingResumeTime = null;
@@ -96,6 +102,11 @@ let lastPlayerStateSaveAt = 0;
 let canonicalDuration = 0;
 let canonicalDurationTrackId = null;
 const coverObjectUrlCache = new Map();
+const trackDurationCache = new Map(
+  Object.entries(readStoredObject(LEARNED_DURATIONS_STORAGE_KEY))
+    .map(([trackId, duration]) => [Number(trackId), positiveFiniteNumber(Number(duration))])
+    .filter(([trackId, duration]) => Number.isInteger(trackId) && duration)
+);
 const trackRatings = new Map();
 
 const expandedSections = {
@@ -135,20 +146,151 @@ function writeStoredObject(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-function normalizePlaylists(value) {
+function trackIdFromValue(value) {
+  if (Number.isInteger(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    const trackId = Number(value);
+    return Number.isInteger(trackId) ? trackId : null;
+  }
+
+  if (value && typeof value === 'object') {
+    if (Object.prototype.hasOwnProperty.call(value, 'id')) {
+      return trackIdFromValue(value.id);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(value, 'trackId')) {
+      return trackIdFromValue(value.trackId);
+    }
+
+    if (value.track && typeof value.track === 'object') {
+      return trackIdFromValue(value.track);
+    }
+  }
+
+  return null;
+}
+
+function normalizeTrackIds(value, limit = Infinity) {
+  const seenTrackIds = new Set();
+  const trackIds = [];
+
+  if (!Array.isArray(value)) {
+    return trackIds;
+  }
+
+  value.forEach((item) => {
+    const trackId = trackIdFromValue(item);
+
+    if (!Number.isInteger(trackId) || seenTrackIds.has(trackId)) {
+      return;
+    }
+
+    seenTrackIds.add(trackId);
+    trackIds.push(trackId);
+  });
+
+  return trackIds.slice(0, limit);
+}
+
+function normalizePlaylist(playlist, options = {}) {
+  const storedTrackIds = Array.isArray(playlist.trackIds) ? playlist.trackIds : [];
+  const storedTracks = Array.isArray(playlist.tracks) ? playlist.tracks : [];
+  const normalizedPlaylist = {
+    id: typeof playlist.id === 'string'
+      ? playlist.id
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    name: typeof playlist.name === 'string' && playlist.name.trim()
+      ? playlist.name.trim()
+      : 'Untitled playlist',
+    trackIds: normalizeTrackIds([...storedTrackIds, ...storedTracks])
+  };
+
+  if (options.preserveLegacyTracks) {
+    const legacyTracks = storedTracks.filter((track) => (
+      track && typeof track === 'object' && Number.isInteger(trackIdFromValue(track))
+    ));
+
+    if (legacyTracks.length > 0) {
+      normalizedPlaylist.tracks = legacyTracks;
+    }
+  }
+
+  return normalizedPlaylist;
+}
+
+function normalizePlaylists(value, options = {}) {
   return value
     .filter((playlist) => playlist && typeof playlist === 'object')
-    .map((playlist) => ({
-      id: typeof playlist.id === 'string'
-        ? playlist.id
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      name: typeof playlist.name === 'string' && playlist.name.trim()
-        ? playlist.name.trim()
-        : 'Untitled playlist',
-      trackIds: Array.isArray(playlist.trackIds)
-        ? [...new Set(playlist.trackIds.filter((trackId) => Number.isInteger(trackId)))]
-        : []
-    }));
+    .map((playlist) => normalizePlaylist(playlist, options));
+}
+
+function playlistTrackIds(playlist) {
+  return normalizeTrackIds([
+    ...(Array.isArray(playlist.trackIds) ? playlist.trackIds : []),
+    ...(Array.isArray(playlist.tracks) ? playlist.tracks : [])
+  ]);
+}
+
+function playlistMatchKey(playlist) {
+  if (typeof playlist.id === 'string' && playlist.id) {
+    return `id:${playlist.id}`;
+  }
+
+  return `name:${playlist.name}`;
+}
+
+function readStoredPlaylists() {
+  const currentPlaylists = normalizePlaylists(readStoredArray(PLAYLISTS_STORAGE_KEY), {
+    preserveLegacyTracks: true
+  });
+  const backupPlaylists = normalizePlaylists(readStoredArray(PLAYLISTS_BACKUP_STORAGE_KEY), {
+    preserveLegacyTracks: true
+  });
+
+  if (backupPlaylists.length === 0) {
+    return currentPlaylists;
+  }
+
+  const backupByKey = new Map(backupPlaylists.map((playlist) => [playlistMatchKey(playlist), playlist]));
+
+  return currentPlaylists.map((playlist) => {
+    if (playlist.trackIds.length > 0) {
+      return playlist;
+    }
+
+    const backupPlaylist = backupByKey.get(playlistMatchKey(playlist));
+
+    return backupPlaylist && backupPlaylist.trackIds.length > 0
+      ? { ...playlist, trackIds: backupPlaylist.trackIds }
+      : playlist;
+  });
+}
+
+function backupPlaylistsBeforeWrite() {
+  if (localStorage.getItem(PLAYLISTS_BACKUP_STORAGE_KEY)) {
+    return;
+  }
+
+  const currentValue = localStorage.getItem(PLAYLISTS_STORAGE_KEY);
+
+  if (currentValue !== null) {
+    localStorage.setItem(PLAYLISTS_BACKUP_STORAGE_KEY, currentValue);
+  }
+}
+
+function hasPlaylistNormalizationLossRisk(value) {
+  return value.some((playlist) => {
+    if (!playlist || typeof playlist !== 'object' || !Array.isArray(playlist.tracks) || playlist.tracks.length === 0) {
+      return false;
+    }
+
+    const trackIds = playlistTrackIds(playlist);
+
+    return trackIds.length === 0;
+  });
 }
 
 function normalizePlayerState(value) {
@@ -216,8 +358,20 @@ function saveQueue() {
 }
 
 function savePlaylists() {
+  backupPlaylistsBeforeWrite();
+
+  if (hasPlaylistNormalizationLossRisk(playlists)) {
+    statusMessage.textContent = 'Playlist migration skipped to avoid losing legacy tracks';
+    return;
+  }
+
   playlists = normalizePlaylists(playlists);
   writeStoredArray(PLAYLISTS_STORAGE_KEY, playlists);
+}
+
+function saveRecentlyPlayed() {
+  recentTrackIds = normalizeTrackIds(recentTrackIds, RECENT_TRACK_LIMIT);
+  writeStoredArray(RECENT_TRACKS_STORAGE_KEY, recentTrackIds);
 }
 
 function savePlayerState() {
@@ -264,8 +418,6 @@ function restoreSavedPreferences() {
     selectedAlbumName = savedPlayerState.playbackContext.contextId;
   } else if (savedPlayerState.playbackContext.contextType === 'artist') {
     selectedArtistName = savedPlayerState.playbackContext.contextId;
-  } else if (savedPlayerState.playbackContext.contextType === 'playlist') {
-    selectedPlaylistId = savedPlayerState.playbackContext.contextId;
   }
 }
 
@@ -292,10 +444,7 @@ function restorePlayerFromState() {
   currentTrackIndex = playbackContext.currentIndex >= 0
     ? playbackContext.currentIndex
     : tracks.findIndex((currentTrack) => currentTrack.id === track.id);
-  queueActiveIndex = savedPlayerState.queueActiveIndex >= 0 &&
-    queueTrackIds[savedPlayerState.queueActiveIndex] === track.id
-    ? savedPlayerState.queueActiveIndex
-    : -1;
+  queueActiveIndex = -1;
   pendingResumeTime = savedPlayerState.currentTime;
   loadTrackIntoPlayer(track);
   audioPlayer.pause();
@@ -304,16 +453,6 @@ function restorePlayerFromState() {
   updateQueueControls();
   updatePlayButton();
   isRestoringPlayer = false;
-}
-
-function formatDuration(duration) {
-  if (!Number.isInteger(duration)) {
-    return 'Unknown duration';
-  }
-
-  const minutes = Math.floor(duration / 60);
-  const seconds = String(duration % 60).padStart(2, '0');
-  return `${minutes}:${seconds}`;
 }
 
 function formatTime(secondsValue) {
@@ -325,6 +464,15 @@ function formatTime(secondsValue) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = String(totalSeconds % 60).padStart(2, '0');
   return `${minutes}:${seconds}`;
+}
+
+function hydrateTrack(track) {
+  if (!track || !Number.isInteger(track.id)) {
+    return track;
+  }
+
+  const latestTrack = findTrackById(track.id);
+  return latestTrack ? { ...track, ...latestTrack } : track;
 }
 
 function positiveFiniteNumber(value) {
@@ -358,6 +506,60 @@ function activeTrackApiDuration() {
   return track ? positiveFiniteNumber(Number(track.duration)) : null;
 }
 
+function cacheTrackDuration(trackId, duration) {
+  const normalizedDuration = positiveFiniteNumber(duration);
+
+  if (!Number.isInteger(trackId) || !normalizedDuration) {
+    return;
+  }
+
+  const currentDuration = trackDurationCache.get(trackId) || 0;
+
+  if (normalizedDuration > currentDuration) {
+    trackDurationCache.set(trackId, normalizedDuration);
+    writeStoredObject(
+      LEARNED_DURATIONS_STORAGE_KEY,
+      Object.fromEntries(trackDurationCache.entries())
+    );
+  }
+}
+
+function getTrackDisplayDuration(track) {
+  const hydratedTrack = hydrateTrack(track);
+  const apiDuration = hydratedTrack ? positiveFiniteNumber(Number(hydratedTrack.duration)) : null;
+
+  if (apiDuration) {
+    return apiDuration;
+  }
+
+  const learnedDuration = hydratedTrack
+    ? positiveFiniteNumber(trackDurationCache.get(hydratedTrack.id))
+    : null;
+
+  if (learnedDuration) {
+    return learnedDuration;
+  }
+
+  return hydratedTrack && hydratedTrack.id === activeTrackId && canonicalDuration > 0
+    ? canonicalDuration
+    : null;
+}
+
+function formatTrackDuration(track) {
+  const duration = getTrackDisplayDuration(track);
+  return duration ? formatTime(duration) : 'Unknown duration';
+}
+
+function syncTrackDurationLabels() {
+  document.querySelectorAll('[data-duration-track-id]').forEach((label) => {
+    const track = findTrackById(Number(label.dataset.durationTrackId));
+
+    if (track) {
+      label.textContent = formatTrackDuration(track);
+    }
+  });
+}
+
 function canonicalPlayerDuration() {
   if (canonicalDurationTrackId !== activeTrackId) {
     canonicalDurationTrackId = activeTrackId;
@@ -371,6 +573,7 @@ function canonicalPlayerDuration() {
 
   if (nextDuration > canonicalDuration) {
     canonicalDuration = nextDuration;
+    cacheTrackDuration(activeTrackId, canonicalDuration);
   }
 
   return canonicalDuration;
@@ -685,11 +888,24 @@ function popPreviousHistoryEntry() {
 }
 
 function playlistTracks(playlist) {
-  const trackIds = Array.isArray(playlist.trackIds) ? playlist.trackIds : [];
+  const trackIds = playlistTrackIds(playlist);
+  const legacyTracksById = new Map(
+    (Array.isArray(playlist.tracks) ? playlist.tracks : [])
+      .map((track) => [trackIdFromValue(track), track])
+      .filter(([trackId, track]) => Number.isInteger(trackId) && track && typeof track === 'object')
+  );
 
   return trackIds
+    .map((trackId) => findTrackById(trackId) || legacyTracksById.get(trackId) || null)
+    .map((track) => hydrateTrack(track))
+    .filter(Boolean);
+}
+
+function refreshRecentlyPlayed() {
+  recentTracks = recentTrackIds
     .map((trackId) => findTrackById(trackId))
     .filter(Boolean);
+  renderRecentlyPlayed();
 }
 
 function contextTracks() {
@@ -774,7 +990,7 @@ function recentAddedTracks() {
 }
 
 function coverUrl(trackId) {
-  return `/tracks/${trackId}/cover`;
+  return `/tracks/${trackId}/cover?v=${COVER_URL_VERSION}`;
 }
 
 async function resolveTrackCover(trackId) {
@@ -900,6 +1116,7 @@ function updateProgress() {
   progressInput.value = String(Math.min(Math.floor(currentTime), Math.floor(progressMax)));
   currentTimeLabel.textContent = formatTime(currentTime);
   durationTimeLabel.textContent = formatTime(duration);
+  syncTrackDurationLabels();
 }
 
 function syncActiveTrack() {
@@ -940,6 +1157,12 @@ function updateTrackInMemory(updatedTrack) {
 }
 
 function addToQueue(track) {
+  if (queueTrackIds[queueTrackIds.length - 1] === track.id) {
+    statusMessage.textContent = `Already at end of queue: ${track.title}`;
+    renderQueue();
+    return;
+  }
+
   queueTrackIds.push(track.id);
   saveQueue();
   renderQueue();
@@ -994,24 +1217,23 @@ function createPlaylist(name) {
 }
 
 function addTrackToPlaylist(track, playlistId) {
+  const hydratedTrack = hydrateTrack(track);
   const targetPlaylist = playlists.find((playlist) => playlist.id === playlistId);
-  const targetTrackIds = targetPlaylist && Array.isArray(targetPlaylist.trackIds)
-    ? targetPlaylist.trackIds
-    : [];
+  const targetTrackIds = targetPlaylist ? playlistTrackIds(targetPlaylist) : [];
 
   if (!targetPlaylist) {
     statusMessage.textContent = 'Playlist not found';
     return;
   }
 
-  if (targetTrackIds.includes(track.id)) {
+  if (targetTrackIds.includes(hydratedTrack.id)) {
     statusMessage.textContent = `Already in playlist: ${targetPlaylist.name}`;
     renderLibrary();
     return;
   }
 
   playlists = playlists.map((playlist) => {
-    const trackIds = Array.isArray(playlist.trackIds) ? playlist.trackIds : [];
+    const trackIds = playlistTrackIds(playlist);
 
     if (playlist.id !== playlistId) {
       return playlist;
@@ -1019,7 +1241,7 @@ function addTrackToPlaylist(track, playlistId) {
 
     return {
       ...playlist,
-      trackIds: [...trackIds, track.id]
+      trackIds: [...trackIds, hydratedTrack.id]
     };
   });
   savePlaylists();
@@ -1028,8 +1250,11 @@ function addTrackToPlaylist(track, playlistId) {
 }
 
 function removeTrackFromPlaylist(playlistId, trackId) {
+  const playlist = playlists.find((currentPlaylist) => currentPlaylist.id === playlistId);
+  const track = findTrackById(trackId);
+
   playlists = playlists.map((playlist) => {
-    const trackIds = Array.isArray(playlist.trackIds) ? playlist.trackIds : [];
+    const trackIds = playlistTrackIds(playlist);
 
     if (playlist.id !== playlistId) {
       return playlist;
@@ -1042,16 +1267,27 @@ function removeTrackFromPlaylist(playlistId, trackId) {
   });
   savePlaylists();
   renderLibrary();
+  statusMessage.textContent = playlist && track
+    ? `Removed from playlist: ${playlist.name}`
+    : 'Removed from playlist';
 }
 
 async function recordTrackPlay(trackId) {
+  recentTrackIds = [
+    trackId,
+    ...recentTrackIds.filter((currentTrackId) => currentTrackId !== trackId)
+  ].slice(0, RECENT_TRACK_LIMIT);
+  saveRecentlyPlayed();
+  refreshRecentlyPlayed();
+
   try {
     await fetch(`/tracks/${trackId}/play`, {
       method: 'POST'
     });
-    await loadRecentlyPlayed();
   } catch (err) {
-    recentlyStatus.textContent = err.message;
+    recentlyStatus.textContent = recentTracks.length === 0
+      ? err.message
+      : `${recentTracks.length} recently played`;
   }
 }
 
@@ -1063,21 +1299,6 @@ function setCurrentTrackIndex(index, options = {}) {
   updatePlaybackContextIndex(activeTrackId);
   if (activeTrackId && !options.skipHistory) {
     pushQueueHistory(activeTrackId, 'context');
-  }
-  renderQueue();
-  syncActiveTrack();
-  updateQueueControls();
-  savePlayerState();
-}
-
-function setCurrentQueueIndex(index, options = {}) {
-  const queueItems = queuedTracks();
-
-  queueActiveIndex = index;
-  activeTrackId = queueItems[index] ? queueItems[index].id : null;
-  currentTrackIndex = tracks.findIndex((track) => track.id === activeTrackId);
-  if (activeTrackId && !options.skipHistory) {
-    pushQueueHistory(activeTrackId, 'queue');
   }
   renderQueue();
   syncActiveTrack();
@@ -1100,15 +1321,47 @@ function playTrackAt(index, options = {}) {
 }
 
 function playQueueAt(index, options = {}) {
-  const queueItems = queuedTracks();
-  const track = queueItems[index];
+  const trackId = queueTrackIds.splice(index, 1)[0];
+  const track = findTrackById(trackId);
 
   if (!track) {
+    saveQueue();
     return;
   }
 
-  setCurrentQueueIndex(index, options);
+  queueActiveIndex = -1;
+  if (!options.skipHistory) {
+    pushQueueHistory(track.id, 'queue');
+  }
+  saveQueue();
   loadTrackIntoPlayer(track);
+  renderQueue();
+  syncActiveTrack();
+  updateQueueControls();
+  savePlayerState();
+  audioPlayer.play().catch(() => {});
+  recordTrackPlay(track.id);
+}
+
+function playNextQueuedTrack(options = {}) {
+  const nextTrackId = queueTrackIds.shift();
+  const track = findTrackById(nextTrackId);
+
+  queueActiveIndex = -1;
+  saveQueue();
+
+  if (!track) {
+    playNextTrack(options);
+    return;
+  }
+
+  activeTrackId = track.id;
+  pushQueueHistory(track.id, 'queue');
+  loadTrackIntoPlayer(track);
+  renderQueue();
+  syncActiveTrack();
+  updateQueueControls();
+  savePlayerState();
   audioPlayer.play().catch(() => {});
   recordTrackPlay(track.id);
 }
@@ -1146,6 +1399,11 @@ function playPreviousTrack() {
     return;
   }
 
+  if (queueActiveIndex < 0 && currentTrackIndex > 0) {
+    playTrackAt(currentTrackIndex - 1);
+    return;
+  }
+
   const historyEntry = popPreviousHistoryEntry();
 
   if (historyEntry) {
@@ -1154,7 +1412,7 @@ function playPreviousTrack() {
       : -1;
     const contextIndex = contextTracks().findIndex((track) => track.id === historyEntry.trackId);
 
-    if (queueIndex >= 0) {
+    if (queueActiveIndex >= 0 && queueIndex >= 0) {
       playQueueAt(queueIndex);
       return;
     }
@@ -1167,11 +1425,6 @@ function playPreviousTrack() {
 
   if (queueActiveIndex > 0) {
     playQueueAt(queueActiveIndex - 1);
-    return;
-  }
-
-  if (currentTrackIndex > 0) {
-    playTrackAt(currentTrackIndex - 1);
     return;
   }
 
@@ -1227,50 +1480,10 @@ function nextTrackIndex() {
   );
 }
 
-function removeCurrentQueueItemAfterPlayback() {
-  if (queueActiveIndex < 0 || queueActiveIndex >= queueTrackIds.length) {
-    return;
-  }
-
-  queueTrackIds.splice(queueActiveIndex, 1);
-  queueActiveIndex = -1;
-  saveQueue();
-}
-
 function playNextTrack(options = {}) {
-  const queueItems = queuedTracks();
-
-  if (queueItems.length > 0) {
-    if (queueActiveIndex < 0) {
-      playQueueAt(0);
-      return;
-    }
-
-    const nextQueueIndex = nextIndexForList(
-      queueItems.length,
-      queueActiveIndex,
-      queueItems.map((track) => track.id)
-    );
-
-    if (nextQueueIndex >= 0) {
-      if (options.consumeQueue && repeatMode !== 'one') {
-        const nextTrackId = queueItems[nextQueueIndex] ? queueItems[nextQueueIndex].id : null;
-        removeCurrentQueueItemAfterPlayback();
-        const adjustedIndex = nextTrackId === null
-          ? -1
-          : queueTrackIds.findIndex((trackId) => trackId === nextTrackId);
-        if (adjustedIndex >= 0) {
-          playQueueAt(adjustedIndex);
-          return;
-        }
-      }
-      playQueueAt(nextQueueIndex);
-      return;
-    }
-
-    if (options.consumeQueue) {
-      removeCurrentQueueItemAfterPlayback();
-    }
+  if (queueTrackIds.length > 0) {
+    playNextQueuedTrack(options);
+    return;
   }
 
   const nextIndex = nextTrackIndex();
@@ -1339,6 +1552,38 @@ function viewTrackArtist(track) {
   renderArtists();
 }
 
+async function copyTrackInfo(track) {
+  const text = `${track.title} — ${formatArtist(track)}\n${formatAlbum(track)}`;
+
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    try {
+      await navigator.clipboard.writeText(text);
+      statusMessage.textContent = `Copied: ${track.title}`;
+      return;
+    } catch (err) {
+      // Fall back to the selection-based copy path below.
+    }
+  }
+
+  const textarea = document.createElement('textarea');
+
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.append(textarea);
+  textarea.select();
+
+  try {
+    document.execCommand('copy');
+    statusMessage.textContent = `Copied: ${track.title}`;
+  } catch (err) {
+    statusMessage.textContent = 'Copy is unavailable';
+  } finally {
+    textarea.remove();
+  }
+}
+
 function renderRatingControl(track) {
   const wrapper = document.createElement('span');
   const currentRating = trackRatings.get(track.id) || 0;
@@ -1364,13 +1609,16 @@ function renderRatingControl(track) {
   return wrapper;
 }
 
-function renderActionMenu(track) {
+function renderActionMenu(track, options = {}) {
   const wrapper = document.createElement('span');
   const trigger = document.createElement('button');
   const menu = document.createElement('span');
+  const playNowButton = document.createElement('button');
   const addToQueueButton = document.createElement('button');
   const playNextButton = document.createElement('button');
   const addToPlaylist = document.createElement('button');
+  const copyInfo = document.createElement('button');
+  const removeFromPlaylist = document.createElement('button');
   const favorite = document.createElement('button');
   const ratingLabel = document.createElement('span');
   const viewAlbum = document.createElement('button');
@@ -1383,6 +1631,18 @@ function renderActionMenu(track) {
   trigger.setAttribute('aria-label', `Track actions for ${track.title}`);
 
   menu.className = 'action-menu';
+
+  playNowButton.type = 'button';
+  playNowButton.textContent = 'Play now';
+  playNowButton.addEventListener('click', (event) => {
+    event.stopPropagation();
+    closeActionMenus();
+    if (typeof options.onClick === 'function') {
+      options.onClick();
+    } else {
+      playTrackFromList(track);
+    }
+  });
 
   addToQueueButton.type = 'button';
   addToQueueButton.textContent = 'Add to queue';
@@ -1405,6 +1665,22 @@ function renderActionMenu(track) {
     ? 'Create a playlist first'
     : 'Add to playlist';
   addToPlaylist.disabled = playlists.length === 0;
+
+  copyInfo.type = 'button';
+  copyInfo.textContent = 'Copy track info';
+  copyInfo.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    closeActionMenus();
+    await copyTrackInfo(track);
+  });
+
+  removeFromPlaylist.type = 'button';
+  removeFromPlaylist.textContent = 'Remove from playlist';
+  removeFromPlaylist.addEventListener('click', (event) => {
+    event.stopPropagation();
+    closeActionMenus();
+    removeTrackFromPlaylist(options.playlistId, track.id);
+  });
 
   favorite.type = 'button';
   favorite.textContent = track.is_favorite ? 'Unfavorite' : 'Favorite';
@@ -1445,6 +1721,7 @@ function renderActionMenu(track) {
   });
 
   menu.append(
+    playNowButton,
     addToQueueButton,
     playNextButton,
     addToPlaylist,
@@ -1461,6 +1738,8 @@ function renderActionMenu(track) {
 
       return playlistButton;
     }),
+    ...(options.playlistId ? [removeFromPlaylist] : []),
+    copyInfo,
     favorite,
     ratingLabel,
     renderRatingControl(track),
@@ -1492,6 +1771,8 @@ function renderFavoriteButton(track) {
 }
 
 function renderTrack(track, options = {}) {
+  track = hydrateTrack(track);
+
   const button = document.createElement('div');
   const details = document.createElement('span');
   const title = document.createElement('span');
@@ -1514,14 +1795,15 @@ function renderTrack(track, options = {}) {
   title.textContent = track.title;
   artist.textContent = formatArtist(track);
   album.textContent = formatAlbum(track);
-  duration.textContent = formatDuration(track.duration);
+  duration.dataset.durationTrackId = String(track.id);
+  duration.textContent = formatTrackDuration(track);
 
   details.append(title, artist, album, duration);
   button.append(
     renderCover(track, 'thumbnail'),
     details,
     renderFavoriteButton(track),
-    renderActionMenu(track)
+    renderActionMenu(track, options)
   );
   button.addEventListener('click', () => {
     if (options.onClick) {
@@ -1547,6 +1829,8 @@ function renderTrack(track, options = {}) {
 }
 
 function renderDetailTrackRow(track, options = {}) {
+  track = hydrateTrack(track);
+
   const row = document.createElement('div');
   const details = document.createElement('span');
   const title = document.createElement('span');
@@ -1569,7 +1853,8 @@ function renderDetailTrackRow(track, options = {}) {
   title.textContent = track.title;
   artist.textContent = formatArtist(track);
   album.textContent = formatAlbum(track);
-  duration.textContent = formatDuration(track.duration);
+  duration.dataset.durationTrackId = String(track.id);
+  duration.textContent = formatTrackDuration(track);
 
   details.append(title, artist, album);
   row.append(
@@ -1577,7 +1862,7 @@ function renderDetailTrackRow(track, options = {}) {
     details,
     duration,
     renderFavoriteButton(track),
-    renderActionMenu(track)
+    renderActionMenu(track, options)
   );
   row.addEventListener('click', () => {
     if (options.onClick) {
@@ -1828,8 +2113,20 @@ function renderArtistDetail(artistName) {
 }
 
 function renderFavorites() {
+  const items = visibleItems('favorites', favoriteTracks);
+
+  if (favoriteTracks.length === 0) {
+    const empty = document.createElement('div');
+
+    empty.className = 'playlist-placeholder';
+    empty.textContent = 'No favorite tracks yet';
+    favoritesList.replaceChildren(empty);
+    updateViewMoreButton('favorites', 0);
+    return;
+  }
+
   favoritesList.replaceChildren(
-    ...visibleItems('favorites', favoriteTracks).map((track) => renderTrack(track, {
+    ...items.map((track) => renderTrack(track, {
       onClick: () => playTrackFromContext(track, 'favorites', null, favoriteTracks)
     }))
   );
@@ -1910,7 +2207,7 @@ function renderPlaylistCard(playlist) {
   title.className = 'group-title';
   meta.className = 'group-meta';
   title.textContent = playlist.name;
-  const trackCount = Array.isArray(playlist.trackIds) ? playlist.trackIds.length : 0;
+  const trackCount = playlistTrackIds(playlist).length;
   meta.textContent = `${trackCount} ${trackCount === 1 ? 'song' : 'songs'}`;
   button.append(
     coverTrack ? renderCover(coverTrack, 'group-cover') : renderPlaylistPlaceholderCover(),
@@ -1940,6 +2237,7 @@ function renderPlaylistDetail(playlistId) {
 
   if (!playlist) {
     selectedPlaylistId = null;
+    savePlayerState();
     renderPlaylists();
     return;
   }
@@ -1966,7 +2264,7 @@ function renderPlaylistDetail(playlistId) {
   title.className = 'detail-title';
   title.textContent = playlist.name;
   meta.className = 'detail-meta';
-  const trackCount = Array.isArray(playlist.trackIds) ? playlist.trackIds.length : 0;
+  const trackCount = playlistTrackIds(playlist).length;
   meta.textContent = `${trackCount} ${trackCount === 1 ? 'song' : 'songs'}`;
   copy.append(title, meta);
 
@@ -1988,6 +2286,7 @@ function renderPlaylistDetail(playlistId) {
 
 function renderPlaylistTrackRow(track, playlistId, playlistItems = []) {
   const row = renderDetailTrackRow(track, {
+    playlistId,
     onClick: () => playTrackFromContext(track, 'playlist', playlistId, playlistItems)
   });
   const removeButton = document.createElement('button');
@@ -2010,6 +2309,8 @@ function renderQueue() {
   const items = visibleItems('queue', queueItems);
   const toolbar = document.createElement('div');
   const clearButton = document.createElement('button');
+  const queueSections = [];
+  const activeTrack = findTrackById(activeTrackId);
 
   queueTitle.textContent = `Queue (${queueItems.length})`;
   toolbar.className = 'queue-toolbar';
@@ -2019,17 +2320,31 @@ function renderQueue() {
   clearButton.disabled = queueItems.length === 0;
   clearButton.addEventListener('click', clearQueue);
   toolbar.append(clearButton);
+  queueSections.push(toolbar);
+
+  if (activeTrack) {
+    const current = document.createElement('div');
+
+    current.className = 'playlist-placeholder';
+    current.textContent = `Currently playing: ${activeTrack.title}`;
+    queueSections.push(current);
+  }
 
   if (queueItems.length === 0) {
     const empty = document.createElement('div');
 
     empty.className = 'playlist-placeholder';
     empty.textContent = 'Queue is empty';
-    queueList.replaceChildren(toolbar, empty);
+    queueSections.push(empty);
   } else {
-    queueList.replaceChildren(toolbar, ...items.map(renderQueueItem));
+    const upNext = document.createElement('div');
+
+    upNext.className = 'playlist-placeholder';
+    upNext.textContent = 'Up next';
+    queueSections.push(upNext, ...items.map(renderQueueItem));
   }
 
+  queueList.replaceChildren(...queueSections);
   updateViewMoreButton('queue', queueItems.length);
 }
 
@@ -2066,6 +2381,7 @@ async function loadTracks(searchValue = '') {
     const data = await response.json();
     allTracks = Array.isArray(data.tracks) ? data.tracks : [];
     applyTrackSearch(searchValue);
+    refreshRecentlyPlayed();
     renderLibrary();
     updateQueueControls();
     updateTracksStatus(searchValue);
@@ -2091,20 +2407,8 @@ async function loadFavorites() {
   }
 }
 
-async function loadRecentlyPlayed() {
-  try {
-    const response = await fetch('/recently-played');
-
-    if (!response.ok) {
-      throw new Error(`Failed to load recently played: ${response.status}`);
-    }
-
-    const data = await response.json();
-    recentTracks = Array.isArray(data.tracks) ? data.tracks : [];
-    renderRecentlyPlayed();
-  } catch (err) {
-    recentlyStatus.textContent = err.message;
-  }
+function loadRecentlyPlayed() {
+  refreshRecentlyPlayed();
 }
 
 function renderAutoScanStatus(status) {
@@ -2212,6 +2516,9 @@ async function toggleFavorite(track) {
   await loadTracks(searchInput.value);
   await loadFavorites();
   await loadRecentlyPlayed();
+  statusMessage.textContent = shouldFavorite
+    ? `Added to favorites: ${track.title}`
+    : `Removed from favorites: ${track.title}`;
 }
 
 coverArt.addEventListener('load', () => {
