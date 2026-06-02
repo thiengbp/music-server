@@ -95,6 +95,7 @@ let isRestoringPlayer = false;
 let lastPlayerStateSaveAt = 0;
 let canonicalDuration = 0;
 let canonicalDurationTrackId = null;
+const coverObjectUrlCache = new Map();
 const trackRatings = new Map();
 
 const expandedSections = {
@@ -772,10 +773,60 @@ function recentAddedTracks() {
   });
 }
 
-function setCoverImage(image, placeholder, trackId) {
+function coverUrl(trackId) {
+  return `/tracks/${trackId}/cover`;
+}
+
+async function resolveTrackCover(trackId) {
+  if (coverObjectUrlCache.has(trackId)) {
+    return coverObjectUrlCache.get(trackId);
+  }
+
+  const coverRequest = fetch(coverUrl(trackId), {
+    cache: 'force-cache'
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        return null;
+      }
+
+      const blob = await response.blob();
+      return URL.createObjectURL(blob);
+    })
+    .catch(() => false);
+
+  coverObjectUrlCache.set(trackId, coverRequest);
+
+  const objectUrl = await coverRequest;
+  coverObjectUrlCache.set(trackId, objectUrl);
+
+  return objectUrl;
+}
+
+async function setCoverImage(image, placeholder, trackId) {
+  image.dataset.trackId = String(trackId);
   placeholder.hidden = false;
   image.hidden = true;
-  image.src = `/tracks/${trackId}/cover`;
+  image.removeAttribute('src');
+
+  const resolvedCoverUrl = await resolveTrackCover(trackId);
+
+  if (resolvedCoverUrl && image.dataset.trackId === String(trackId)) {
+    image.src = resolvedCoverUrl;
+  }
+}
+
+async function setActiveCoverBackground(trackId) {
+  document.documentElement.style.setProperty('--active-cover-url', 'none');
+
+  const resolvedCoverUrl = await resolveTrackCover(trackId);
+
+  if (resolvedCoverUrl && activeTrackId === trackId) {
+    document.documentElement.style.setProperty(
+      '--active-cover-url',
+      `url("${resolvedCoverUrl}")`
+    );
+  }
 }
 
 function renderCover(track, className) {
@@ -861,10 +912,7 @@ function syncActiveTrack() {
 function loadTrackIntoPlayer(track) {
   canonicalDurationTrackId = track.id;
   canonicalDuration = 0;
-  document.documentElement.style.setProperty(
-    '--active-cover-url',
-    `url("/tracks/${track.id}/cover")`
-  );
+  setActiveCoverBackground(track.id);
   nowTitle.textContent = track.title;
   nowArtist.textContent = formatArtist(track);
   heroTitle.textContent = track.title;

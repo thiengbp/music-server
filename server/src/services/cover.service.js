@@ -4,6 +4,20 @@ const db = require('../config/database');
 
 const CACHE_MAX_AGE_SECONDS = 86400;
 const SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png']);
+const FALLBACK_COVER_SVG = Buffer.from(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <rect width="96" height="96" rx="18" fill="#2b2529"/>
+  <path d="M40 24v34.5A10.5 10.5 0 1 1 32 48V30l36-8v32.5A10.5 10.5 0 1 1 60 44V28.5z" fill="#ff2d55"/>
+</svg>
+`.trim());
+
+function fallbackCover() {
+  return {
+    data: FALLBACK_COVER_SVG,
+    contentType: 'image/svg+xml',
+    cacheControl: `public, max-age=${CACHE_MAX_AGE_SECONDS}`
+  };
+}
 
 function createHttpError(statusCode, message) {
   const err = new Error(message);
@@ -54,15 +68,11 @@ async function getTrackCover(trackId) {
   try {
     picture = await readEmbeddedCover(track.file_path);
   } catch (err) {
-    if (err.code === 'ENOENT') {
-      throw createHttpError(404, 'Audio file not found');
-    }
-
-    throw err;
+    return fallbackCover();
   }
 
   if (!picture) {
-    throw createHttpError(404, 'Cover not found');
+    return fallbackCover();
   }
 
   return {
