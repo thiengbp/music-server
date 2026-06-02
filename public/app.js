@@ -93,6 +93,8 @@ let pendingResumeTime = null;
 let hasRestoredPlayer = false;
 let isRestoringPlayer = false;
 let lastPlayerStateSaveAt = 0;
+let canonicalDuration = 0;
+let canonicalDurationTrackId = null;
 const trackRatings = new Map();
 
 const expandedSections = {
@@ -322,6 +324,55 @@ function formatTime(secondsValue) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = String(totalSeconds % 60).padStart(2, '0');
   return `${minutes}:${seconds}`;
+}
+
+function positiveFiniteNumber(value) {
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function activeTrack() {
+  return findTrackById(activeTrackId);
+}
+
+function audioDuration() {
+  return positiveFiniteNumber(audioPlayer.duration);
+}
+
+function audioSeekableEnd() {
+  const seekable = audioPlayer.seekable;
+
+  if (!seekable || seekable.length === 0) {
+    return null;
+  }
+
+  try {
+    return positiveFiniteNumber(seekable.end(seekable.length - 1));
+  } catch (err) {
+    return null;
+  }
+}
+
+function activeTrackApiDuration() {
+  const track = activeTrack();
+  return track ? positiveFiniteNumber(Number(track.duration)) : null;
+}
+
+function canonicalPlayerDuration() {
+  if (canonicalDurationTrackId !== activeTrackId) {
+    canonicalDurationTrackId = activeTrackId;
+    canonicalDuration = 0;
+  }
+
+  const audioDur = audioDuration();
+  const seekableDur = audioSeekableEnd();
+  const apiDur = activeTrackApiDuration();
+  const nextDuration = audioDur || seekableDur || apiDur || 0;
+
+  if (nextDuration > canonicalDuration) {
+    canonicalDuration = nextDuration;
+  }
+
+  return canonicalDuration;
 }
 
 function formatArtist(track) {
@@ -790,11 +841,12 @@ function updatePlayButton() {
 }
 
 function updateProgress() {
-  const duration = Number.isFinite(audioPlayer.duration) ? audioPlayer.duration : 0;
+  const duration = canonicalPlayerDuration();
   const currentTime = Number.isFinite(audioPlayer.currentTime) ? audioPlayer.currentTime : 0;
+  const progressMax = duration > 0 ? duration : currentTime;
 
-  progressInput.max = String(Math.floor(duration));
-  progressInput.value = String(Math.floor(currentTime));
+  progressInput.max = String(Math.floor(progressMax));
+  progressInput.value = String(Math.min(Math.floor(currentTime), Math.floor(progressMax)));
   currentTimeLabel.textContent = formatTime(currentTime);
   durationTimeLabel.textContent = formatTime(duration);
 }
@@ -807,6 +859,8 @@ function syncActiveTrack() {
 }
 
 function loadTrackIntoPlayer(track) {
+  canonicalDurationTrackId = track.id;
+  canonicalDuration = 0;
   document.documentElement.style.setProperty(
     '--active-cover-url',
     `url("/tracks/${track.id}/cover")`
