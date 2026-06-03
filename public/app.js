@@ -1,25 +1,17 @@
 'use strict';
 
-const PREVIEW_LIMITS = {
-  songs: 20,
-  albums: 8,
-  artists: 8,
-  favorites: 10,
-  recentAdded: 20,
-  recent: 20,
-  queue: 20
-};
-
 const QUEUE_STORAGE_KEY = 'music-server.queue.v1';
 const PLAYLISTS_STORAGE_KEY = 'music-server.playlists.v1';
 const PLAYLISTS_BACKUP_STORAGE_KEY = `${PLAYLISTS_STORAGE_KEY}.backup`;
 const PLAYER_STATE_STORAGE_KEY = 'music-server.player-state.v1';
 const RECENT_TRACKS_STORAGE_KEY = 'music-server.recent-tracks.v1';
 const LEARNED_DURATIONS_STORAGE_KEY = 'music-server.learned-durations.v1';
+const AUTO_SCAN_LAST_SCAN_STORAGE_KEY = 'musicServer.autoScan.lastScanAt';
 const ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v1';
 const ARTIST_INFO_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const COVER_URL_VERSION = 'v2';
 const RECENT_TRACK_LIMIT = 50;
+const DEFAULT_AUTO_SCAN_INTERVAL_MINUTES = 30;
 
 const trackList = document.getElementById('track-list');
 const albumsList = document.getElementById('albums-list');
@@ -32,10 +24,6 @@ const queueList = document.getElementById('queue-list');
 const statusMessage = document.getElementById('status');
 const recentlyStatus = document.getElementById('recently-status');
 const queueTitle = document.getElementById('queue-title');
-const autoScanStatus = document.getElementById('auto-scan-status');
-const autoScanInterval = document.getElementById('auto-scan-interval');
-const autoScanLast = document.getElementById('auto-scan-last');
-const scanNowButton = document.getElementById('scan-now-button');
 const searchInput = document.getElementById('search-input');
 const favoritesFilterButton = document.getElementById('favorites-filter');
 const audioPlayer = document.getElementById('audio-player');
@@ -65,8 +53,6 @@ const heroArtistListeners = document.getElementById('hero-artist-listeners');
 const heroArtistTags = document.getElementById('hero-artist-tags');
 const heroArtistTopTracks = document.getElementById('hero-artist-top-tracks');
 const heroArtistAvatar = document.getElementById('hero-artist-avatar');
-const heroPlayButton = document.getElementById('hero-play-button');
-const heroShuffleButton = document.getElementById('hero-shuffle-button');
 
 let searchTimer = null;
 let activeTrackId = null;
@@ -82,6 +68,9 @@ let selectedAlbumName = null;
 let selectedArtistName = null;
 let selectedPlaylistId = null;
 let lastSeenAutoScanAt = null;
+let autoScanTimerId = null;
+let isAutoScanning = false;
+let lastAutoScanAt = null;
 let savedPlayerState = normalizePlayerState(readStoredObject(PLAYER_STATE_STORAGE_KEY));
 let queueTrackIds = savedPlayerState.queueTrackIds.length > 0
   ? [...savedPlayerState.queueTrackIds]
@@ -109,17 +98,6 @@ const trackDurationCache = new Map(
 );
 const trackRatings = new Map();
 
-const expandedSections = {
-  songs: false,
-  albums: false,
-  artists: false,
-  favorites: false,
-  recentAdded: false,
-  recent: false,
-  playlists: false,
-  queue: false
-};
-
 function readStoredArray(key) {
   try {
     const value = JSON.parse(localStorage.getItem(key) || '[]');
@@ -144,6 +122,16 @@ function writeStoredArray(key, value) {
 
 function writeStoredObject(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
+}
+
+function loadAutoScanSettings() {
+  lastAutoScanAt = localStorage.getItem(AUTO_SCAN_LAST_SCAN_STORAGE_KEY);
+}
+
+function saveAutoScanSettings() {
+  if (lastAutoScanAt) {
+    localStorage.setItem(AUTO_SCAN_LAST_SCAN_STORAGE_KEY, lastAutoScanAt);
+  }
 }
 
 function trackIdFromValue(value) {
@@ -587,6 +575,25 @@ function formatAlbum(track) {
   return track.album || 'Unknown album';
 }
 
+function formatGenre(track) {
+  if (Array.isArray(track.genres) && track.genres.length > 0) {
+    return track.genres.filter(Boolean).join(', ') || '—';
+  }
+
+  return track.genre || '—';
+}
+
+function formatYear(track) {
+  const value = track.year || track.releaseYear || track.date || track.releaseDate;
+
+  if (!value) {
+    return '—';
+  }
+
+  const match = String(value).match(/\d{4}/);
+  return match ? match[0] : '—';
+}
+
 function normalizeSearchText(value) {
   return String(value || '')
     .normalize('NFD')
@@ -619,18 +626,39 @@ function applyTrackSearch(searchValue = '') {
 }
 
 function updateTracksStatus(searchValue = '') {
-  const keyword = searchValue.trim();
+  const stats = getLibraryStats();
 
-  if (tracks.length === 0) {
-    statusMessage.textContent = keyword
-      ? '0 tracks found'
-      : 'No tracks found';
+  if (stats.tracks === 0) {
+    statusMessage.textContent = searchValue.trim() ? '0 tracks found' : 'No tracks found';
     return;
   }
 
-  statusMessage.textContent = keyword
-    ? `${tracks.length} tracks found`
-    : `${tracks.length} tracks`;
+  const tracksStat = document.createElement('span');
+  const albumsStat = document.createElement('span');
+  const artistsStat = document.createElement('span');
+
+  statusMessage.classList.add('library-stats');
+  tracksStat.textContent = `Tracks: ${stats.tracks}`;
+  albumsStat.textContent = `Albums: ${stats.albums}`;
+  artistsStat.textContent = `Artists: ${stats.artists}`;
+  statusMessage.replaceChildren(tracksStat, albumsStat, artistsStat);
+}
+
+function getLibraryStats() {
+  const libraryTracks = Array.isArray(allTracks) ? allTracks : [];
+  const albums = new Set();
+  const artists = new Set();
+
+  libraryTracks.forEach((track) => {
+    albums.add(formatAlbum(track));
+    artists.add(formatArtist(track));
+  });
+
+  return {
+    tracks: libraryTracks.length,
+    albums: albums.size,
+    artists: artists.size
+  };
 }
 
 function isUnknownArtistName(artistName) {
@@ -953,21 +981,6 @@ function formatDateTime(value) {
   });
 }
 
-function visibleItems(key, items) {
-  return expandedSections[key] ? items : items.slice(0, PREVIEW_LIMITS[key]);
-}
-
-function updateViewMoreButton(key, total) {
-  const button = document.querySelector(`[data-view-more="${key}"]`);
-
-  if (!button) {
-    return;
-  }
-
-  button.hidden = total <= PREVIEW_LIMITS[key];
-  button.textContent = expandedSections[key] ? 'Show less' : 'View more';
-}
-
 function recentAddedTracks() {
   return [...tracks].sort((a, b) => {
     const dateA = Date.parse(a.created_at || '');
@@ -1096,7 +1109,6 @@ function updateQueueControls() {
       ? 'Repeat all'
       : 'Repeat one';
   shuffleButton.title = isShuffleEnabled ? 'Shuffle on' : 'Shuffle off';
-  heroShuffleButton.classList.toggle('active', isShuffleEnabled);
 }
 
 function updatePlayButton() {
@@ -1104,7 +1116,6 @@ function updatePlayButton() {
 
   playButton.textContent = isPlaying ? '❚❚' : '▶';
   playButton.setAttribute('aria-label', isPlaying ? 'Pause' : 'Play');
-  heroPlayButton.textContent = isPlaying ? 'Pause' : 'Play';
 }
 
 function updateProgress() {
@@ -1530,9 +1541,57 @@ function togglePlayPause() {
 }
 
 function closeActionMenus() {
-  document.querySelectorAll('.track-actions.open').forEach((menu) => {
-    menu.classList.remove('open');
+  document.querySelectorAll('.track-actions.open').forEach((wrapper) => {
+    wrapper.classList.remove('open');
+    const actionMenu = wrapper.actionMenu || document.querySelector(`.action-menu[data-action-menu-owner="${wrapper.dataset.actionMenuOwner}"]`);
+
+    if (!actionMenu) {
+      return;
+    }
+
+    actionMenu.classList.remove('open');
+    actionMenu.style.top = '';
+    actionMenu.style.left = '';
+    actionMenu.style.maxHeight = '';
+
+    if (actionMenu.parentElement !== wrapper) {
+      wrapper.append(actionMenu);
+    }
   });
+}
+
+function positionActionMenu(trigger, menu) {
+  if (!trigger || !menu) {
+    return;
+  }
+
+  const viewportPadding = 12;
+  const triggerGap = 8;
+
+  menu.style.maxHeight = '';
+  menu.classList.add('open');
+
+  const triggerRect = trigger.getBoundingClientRect();
+  const menuWidth = menu.offsetWidth;
+  const menuHeight = menu.offsetHeight;
+  const spaceBelow = window.innerHeight - triggerRect.bottom - viewportPadding;
+  const spaceAbove = triggerRect.top - viewportPadding;
+  const opensBelow = spaceBelow >= menuHeight + triggerGap || spaceBelow >= spaceAbove;
+  const availableHeight = Math.max(
+    96,
+    (opensBelow ? spaceBelow : spaceAbove) - triggerGap
+  );
+  const left = Math.min(
+    Math.max(viewportPadding, triggerRect.right - menuWidth),
+    window.innerWidth - menuWidth - viewportPadding
+  );
+  const top = opensBelow
+    ? Math.min(triggerRect.bottom + triggerGap, window.innerHeight - availableHeight - viewportPadding)
+    : Math.max(viewportPadding, triggerRect.top - Math.min(menuHeight, availableHeight) - triggerGap);
+
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+  menu.style.maxHeight = `${availableHeight}px`;
 }
 
 function setTrackRating(track, rating) {
@@ -1625,12 +1684,15 @@ function renderActionMenu(track, options = {}) {
   const viewArtist = document.createElement('button');
 
   wrapper.className = 'track-actions';
+  wrapper.dataset.actionMenuOwner = `track-${track.id}-${Math.random().toString(16).slice(2)}`;
   trigger.type = 'button';
   trigger.className = 'action-trigger';
-  trigger.textContent = '...';
+  trigger.textContent = '⋯';
   trigger.setAttribute('aria-label', `Track actions for ${track.title}`);
 
   menu.className = 'action-menu';
+  menu.dataset.actionMenuOwner = wrapper.dataset.actionMenuOwner;
+  wrapper.actionMenu = menu;
 
   playNowButton.type = 'button';
   playNowButton.textContent = 'Play now';
@@ -1713,7 +1775,12 @@ function renderActionMenu(track, options = {}) {
     event.stopPropagation();
     const isOpen = wrapper.classList.contains('open');
     closeActionMenus();
-    wrapper.classList.toggle('open', !isOpen);
+
+    if (!isOpen) {
+      wrapper.classList.add('open');
+      document.body.append(menu);
+      positionActionMenu(trigger, menu);
+    }
   });
 
   menu.addEventListener('click', (event) => {
@@ -1778,6 +1845,8 @@ function renderTrack(track, options = {}) {
   const title = document.createElement('span');
   const artist = document.createElement('span');
   const album = document.createElement('span');
+  const genre = document.createElement('span');
+  const year = document.createElement('span');
   const duration = document.createElement('span');
 
   button.className = 'track';
@@ -1790,15 +1859,19 @@ function renderTrack(track, options = {}) {
   title.className = 'title';
   artist.className = 'meta';
   album.className = 'meta';
+  genre.className = 'meta track-genre';
+  year.className = 'meta track-year';
   duration.className = 'duration';
 
   title.textContent = track.title;
   artist.textContent = formatArtist(track);
   album.textContent = formatAlbum(track);
+  genre.textContent = formatGenre(track);
+  year.textContent = formatYear(track);
   duration.dataset.durationTrackId = String(track.id);
   duration.textContent = formatTrackDuration(track);
 
-  details.append(title, artist, album, duration);
+  details.append(title, artist, album, genre, year, duration);
   button.append(
     renderCover(track, 'thumbnail'),
     details,
@@ -1889,10 +1962,10 @@ function renderDetailTrackRow(track, options = {}) {
 
 function renderQueueItem(track, index) {
   const item = document.createElement('div');
-  const copy = document.createElement('span');
   const title = document.createElement('span');
   const artist = document.createElement('span');
-  const icon = document.createElement('span');
+  const album = document.createElement('span');
+  const duration = document.createElement('span');
   const removeButton = document.createElement('button');
   const isActive = queueActiveIndex === index && track.id === activeTrackId;
 
@@ -1903,10 +1976,10 @@ function renderQueueItem(track, index) {
   item.dataset.trackId = String(track.id);
   item.setAttribute('aria-label', `Play ${track.title}`);
 
-  copy.className = 'queue-copy';
   title.className = 'queue-name';
   artist.className = 'queue-artist';
-  icon.className = 'queue-icon';
+  album.className = 'queue-album';
+  duration.className = 'queue-duration';
   removeButton.type = 'button';
   removeButton.className = 'queue-remove-button';
   removeButton.textContent = '×';
@@ -1914,15 +1987,15 @@ function renderQueueItem(track, index) {
 
   title.textContent = track.title;
   artist.textContent = formatArtist(track);
-  icon.textContent = isActive ? '▶' : '';
+  album.textContent = formatAlbum(track);
+  duration.textContent = formatTrackDuration(track);
 
   removeButton.addEventListener('click', (event) => {
     event.stopPropagation();
     removeFromQueue(index);
   });
 
-  copy.append(title, artist);
-  item.append(renderCover(track, 'queue-cover'), copy, icon, removeButton);
+  item.append(renderCover(track, 'queue-cover'), title, artist, album, duration, removeButton);
   item.addEventListener('click', () => playQueueAt(index));
   item.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
@@ -1932,6 +2005,96 @@ function renderQueueItem(track, index) {
   });
 
   return item;
+}
+
+function renderQueueNowPlaying(track) {
+  const item = document.createElement('div');
+  const title = document.createElement('span');
+  const artist = document.createElement('span');
+  const album = document.createElement('span');
+  const duration = document.createElement('span');
+  const spacer = document.createElement('span');
+
+  item.className = 'queue-item queue-now-playing active';
+  title.className = 'queue-name';
+  artist.className = 'queue-artist';
+  album.className = 'queue-album';
+  duration.className = 'queue-duration';
+  spacer.className = 'queue-action-spacer';
+
+  title.textContent = track.title;
+  artist.textContent = formatArtist(track);
+  album.textContent = formatAlbum(track);
+  duration.textContent = formatTrackDuration(track);
+
+  item.append(renderCover(track, 'queue-cover'), title, artist, album, duration, spacer);
+
+  return item;
+}
+
+function renderTrackHeaderRow() {
+  const header = document.createElement('div');
+  const title = document.createElement('span');
+  const artist = document.createElement('span');
+  const album = document.createElement('span');
+  const genre = document.createElement('span');
+  const year = document.createElement('span');
+
+  header.className = 'songs-header-row track-header-row';
+  header.setAttribute('aria-hidden', 'true');
+  title.className = 'songs-header-title';
+  title.textContent = 'Song name';
+  artist.textContent = 'Artist';
+  album.textContent = 'Album';
+  genre.textContent = 'Genre';
+  year.textContent = 'Year';
+  header.append(title, artist, album, genre, year);
+
+  return header;
+}
+
+function renderDetailTrackHeaderRow() {
+  const header = document.createElement('div');
+  const title = document.createElement('span');
+  const artist = document.createElement('span');
+  const album = document.createElement('span');
+  const duration = document.createElement('span');
+  const actions = document.createElement('span');
+
+  header.className = 'detail-track-header-row';
+  header.setAttribute('aria-hidden', 'true');
+  title.className = 'detail-track-header-title';
+  duration.className = 'detail-track-header-duration';
+  actions.className = 'detail-track-header-actions';
+  title.textContent = 'Song name';
+  artist.textContent = 'Artist';
+  album.textContent = 'Album';
+  duration.textContent = 'Duration';
+  actions.textContent = 'Actions';
+  header.append(title, artist, album, duration, actions);
+
+  return header;
+}
+
+function renderQueueHeaderRow() {
+  const header = document.createElement('div');
+  const title = document.createElement('span');
+  const artist = document.createElement('span');
+  const album = document.createElement('span');
+  const duration = document.createElement('span');
+  const actions = document.createElement('span');
+
+  header.className = 'queue-header-row';
+  header.setAttribute('aria-hidden', 'true');
+  title.className = 'queue-header-title';
+  title.textContent = 'Song name';
+  artist.textContent = 'Artist';
+  album.textContent = 'Album';
+  duration.textContent = 'Duration';
+  actions.textContent = 'Actions';
+  header.append(title, artist, album, duration, actions);
+
+  return header;
 }
 
 function renderGroupCard(item, type) {
@@ -2000,13 +2163,11 @@ function setActiveLibraryTab(tabName) {
 }
 
 function renderSongs() {
-  const items = visibleItems('songs', tracks);
   const contextType = searchInput.value.trim() ? 'search' : 'songs';
   const contextId = searchInput.value.trim() || null;
-  trackList.replaceChildren(...items.map((track) => renderTrack(track, {
+  trackList.replaceChildren(...tracks.map((track) => renderTrack(track, {
     onClick: () => playTrackFromContext(track, contextType, contextId, tracks)
   })));
-  updateViewMoreButton('songs', tracks.length);
 }
 
 function renderAlbums() {
@@ -2014,15 +2175,13 @@ function renderAlbums() {
 
   if (selectedAlbumName) {
     renderAlbumDetail(selectedAlbumName);
-    updateViewMoreButton('albums', 0);
     return;
   }
 
   albumsList.className = 'group-list';
   albumsList.replaceChildren(
-    ...visibleItems('albums', albums).map((album) => renderGroupCard(album, 'album'))
+    ...albums.map((album) => renderGroupCard(album, 'album'))
   );
-  updateViewMoreButton('albums', albums.length);
 }
 
 function renderAlbumDetail(albumName) {
@@ -2037,8 +2196,10 @@ function renderAlbumDetail(albumName) {
   albumsList.className = 'detail-view';
   header.className = 'detail-header album-detail-header';
   backButton.type = 'button';
-  backButton.className = 'view-more-button detail-back-button album-back-button';
-  backButton.textContent = 'All albums';
+  backButton.className = 'detail-back-button album-back-button';
+  backButton.textContent = '←';
+  backButton.setAttribute('aria-label', 'Back to all albums');
+  backButton.title = 'All albums';
   backButton.addEventListener('click', () => {
     selectedAlbumName = null;
     renderAlbums();
@@ -2064,15 +2225,13 @@ function renderArtists() {
 
   if (selectedArtistName) {
     renderArtistDetail(selectedArtistName);
-    updateViewMoreButton('artists', 0);
     return;
   }
 
   artistsList.className = 'group-list';
   artistsList.replaceChildren(
-    ...visibleItems('artists', artists).map((artist) => renderGroupCard(artist, 'artist'))
+    ...artists.map((artist) => renderGroupCard(artist, 'artist'))
   );
-  updateViewMoreButton('artists', artists.length);
 }
 
 function renderArtistDetail(artistName) {
@@ -2088,8 +2247,10 @@ function renderArtistDetail(artistName) {
   artistsList.className = 'detail-view';
   header.className = 'detail-header artist-detail-header';
   backButton.type = 'button';
-  backButton.className = 'view-more-button detail-back-button artist-back-button';
-  backButton.textContent = 'All artists';
+  backButton.className = 'detail-back-button artist-back-button';
+  backButton.textContent = '←';
+  backButton.setAttribute('aria-label', 'Back to all artists');
+  backButton.title = 'All artists';
   backButton.addEventListener('click', () => {
     selectedArtistName = null;
     renderArtists();
@@ -2113,43 +2274,40 @@ function renderArtistDetail(artistName) {
 }
 
 function renderFavorites() {
-  const items = visibleItems('favorites', favoriteTracks);
-
   if (favoriteTracks.length === 0) {
     const empty = document.createElement('div');
 
     empty.className = 'playlist-placeholder';
     empty.textContent = 'No favorite tracks yet';
-    favoritesList.replaceChildren(empty);
-    updateViewMoreButton('favorites', 0);
+    favoritesList.replaceChildren(renderTrackHeaderRow(), empty);
     return;
   }
 
   favoritesList.replaceChildren(
-    ...items.map((track) => renderTrack(track, {
+    renderTrackHeaderRow(),
+    ...favoriteTracks.map((track) => renderTrack(track, {
       onClick: () => playTrackFromContext(track, 'favorites', null, favoriteTracks)
     }))
   );
-  updateViewMoreButton('favorites', favoriteTracks.length);
 }
 
 function renderRecentlyAdded() {
   const items = recentAddedTracks();
   recentlyAddedList.replaceChildren(
-    ...visibleItems('recentAdded', items).map((track) => renderTrack(track, {
+    renderTrackHeaderRow(),
+    ...items.map((track) => renderTrack(track, {
       onClick: () => playTrackFromContext(track, 'recentAdded', null, items)
     }))
   );
-  updateViewMoreButton('recentAdded', items.length);
 }
 
 function renderRecentlyPlayed() {
   recentlyList.replaceChildren(
-    ...visibleItems('recent', recentTracks).map((track) => renderTrack(track, {
+    renderTrackHeaderRow(),
+    ...recentTracks.map((track) => renderTrack(track, {
       onClick: () => playTrackFromContext(track, 'recent', null, recentTracks)
     }))
   );
-  updateViewMoreButton('recent', recentTracks.length);
   recentlyStatus.textContent = recentTracks.length === 0
     ? 'No recently played tracks'
     : `${recentTracks.length} recently played`;
@@ -2169,10 +2327,10 @@ function renderPlaylists() {
   form.className = 'playlist-toolbar';
   input.className = 'playlist-input';
   input.type = 'text';
-  input.placeholder = 'New playlist name';
+  input.placeholder = 'Name';
   button.className = 'view-more-button playlist-create-button';
   button.type = 'submit';
-  button.textContent = 'Create playlist';
+  button.textContent = 'Create';
   form.append(input, button);
   form.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -2184,9 +2342,13 @@ function renderPlaylists() {
 
   if (playlists.length === 0) {
     const empty = document.createElement('div');
+    const title = document.createElement('strong');
+    const copy = document.createElement('span');
 
-    empty.className = 'playlist-placeholder';
-    empty.textContent = 'No playlists yet';
+    empty.className = 'playlist-placeholder playlist-empty-state';
+    title.textContent = 'No playlists yet';
+    copy.textContent = 'Create your first playlist above.';
+    empty.append(title, copy);
     list.append(empty);
   } else {
     list.append(...playlists.map((playlist) => renderPlaylistCard(playlist)));
@@ -2198,21 +2360,23 @@ function renderPlaylists() {
 
 function renderPlaylistCard(playlist) {
   const button = document.createElement('button');
+  const copy = document.createElement('span');
   const title = document.createElement('span');
   const meta = document.createElement('span');
   const coverTrack = playlistTracks(playlist)[0];
 
   button.type = 'button';
   button.className = 'playlist-card';
+  copy.className = 'playlist-card-copy';
   title.className = 'group-title';
   meta.className = 'group-meta';
   title.textContent = playlist.name;
   const trackCount = playlistTrackIds(playlist).length;
   meta.textContent = `${trackCount} ${trackCount === 1 ? 'song' : 'songs'}`;
+  copy.append(title, meta);
   button.append(
     coverTrack ? renderCover(coverTrack, 'group-cover') : renderPlaylistPlaceholderCover(),
-    title,
-    meta
+    copy
   );
   button.addEventListener('click', () => {
     selectedPlaylistId = playlist.id;
@@ -2253,8 +2417,10 @@ function renderPlaylistDetail(playlistId) {
   playlistsList.className = 'detail-view playlist-detail-view';
   header.className = 'detail-header playlist-detail-header';
   backButton.type = 'button';
-  backButton.className = 'view-more-button detail-back-button';
-  backButton.textContent = 'All playlists';
+  backButton.className = 'detail-back-button';
+  backButton.textContent = '←';
+  backButton.setAttribute('aria-label', 'Back to all playlists');
+  backButton.title = 'All playlists';
   backButton.addEventListener('click', () => {
     selectedPlaylistId = null;
     savePlayerState();
@@ -2275,9 +2441,12 @@ function renderPlaylistDetail(playlistId) {
 
     empty.className = 'playlist-placeholder';
     empty.textContent = 'This playlist is empty';
-    list.append(empty);
+    list.append(renderDetailTrackHeaderRow(), empty);
   } else {
-    list.append(...playlistItems.map((track) => renderPlaylistTrackRow(track, playlist.id, playlistItems)));
+    list.append(
+      renderDetailTrackHeaderRow(),
+      ...playlistItems.map((track) => renderPlaylistTrackRow(track, playlist.id, playlistItems))
+    );
   }
 
   header.append(backButton, copy);
@@ -2306,46 +2475,62 @@ function renderPlaylistTrackRow(track, playlistId, playlistItems = []) {
 
 function renderQueue() {
   const queueItems = queuedTracks();
-  const items = visibleItems('queue', queueItems);
   const toolbar = document.createElement('div');
+  const heading = document.createElement('h3');
   const clearButton = document.createElement('button');
   const queueSections = [];
   const activeTrack = findTrackById(activeTrackId);
 
   queueTitle.textContent = `Queue (${queueItems.length})`;
+  queueTitle.hidden = true;
   toolbar.className = 'queue-toolbar';
+  heading.className = 'queue-heading';
+  heading.textContent = `Queue (${queueItems.length})`;
   clearButton.type = 'button';
   clearButton.className = 'view-more-button clear-queue-button';
   clearButton.textContent = 'Clear queue';
-  clearButton.disabled = queueItems.length === 0;
+  clearButton.hidden = queueItems.length === 0;
   clearButton.addEventListener('click', clearQueue);
-  toolbar.append(clearButton);
+  toolbar.append(heading, clearButton);
   queueSections.push(toolbar);
 
   if (activeTrack) {
     const current = document.createElement('div');
+    const label = document.createElement('span');
+    const row = renderQueueNowPlaying(activeTrack);
 
-    current.className = 'playlist-placeholder';
-    current.textContent = `Currently playing: ${activeTrack.title}`;
+    current.className = 'queue-section';
+    label.className = 'queue-section-label';
+    label.textContent = 'Now playing';
+    current.append(label, row);
     queueSections.push(current);
   }
 
   if (queueItems.length === 0) {
     const empty = document.createElement('div');
+    const title = document.createElement('strong');
+    const copy = document.createElement('span');
 
-    empty.className = 'playlist-placeholder';
-    empty.textContent = 'Queue is empty';
-    queueSections.push(empty);
+    empty.className = 'queue-empty';
+    title.textContent = 'Queue is empty';
+    copy.textContent = 'Add songs with Play Next or Add to Queue.';
+    empty.append(title, copy);
+    queueSections.push(renderQueueHeaderRow(), empty);
   } else {
     const upNext = document.createElement('div');
+    const label = document.createElement('span');
+    const list = document.createElement('div');
 
-    upNext.className = 'playlist-placeholder';
-    upNext.textContent = 'Up next';
-    queueSections.push(upNext, ...items.map(renderQueueItem));
+    upNext.className = 'queue-section';
+    label.className = 'queue-section-label';
+    label.textContent = 'Up next';
+    list.className = 'queue-items';
+    list.append(renderQueueHeaderRow(), ...queueItems.map(renderQueueItem));
+    upNext.append(label, list);
+    queueSections.push(upNext);
   }
 
   queueList.replaceChildren(...queueSections);
-  updateViewMoreButton('queue', queueItems.length);
 }
 
 function renderLibrary() {
@@ -2412,29 +2597,13 @@ function loadRecentlyPlayed() {
 }
 
 function renderAutoScanStatus(status) {
-  if (!autoScanStatus || !autoScanInterval || !autoScanLast || !scanNowButton) {
-    return;
+  if (status && status.lastScanAt) {
+    lastAutoScanAt = status.lastScanAt;
+    saveAutoScanSettings();
   }
-
-  if (!status || !status.enabled) {
-    autoScanStatus.textContent = 'Auto Scan: Off';
-    autoScanInterval.textContent = 'Every —';
-    autoScanLast.textContent = 'Last scan: —';
-    scanNowButton.disabled = true;
-    return;
-  }
-
-  autoScanStatus.textContent = status.isRunning ? 'Auto Scan: Scanning...' : 'Auto Scan: On';
-  autoScanInterval.textContent = `Every ${status.intervalMinutes || '—'} min`;
-  autoScanLast.textContent = `Last scan: ${formatDateTime(status.lastScanAt)}`;
-  scanNowButton.disabled = Boolean(status.isRunning);
 }
 
 async function loadAutoScanStatus() {
-  if (!autoScanStatus || !autoScanInterval || !autoScanLast || !scanNowButton) {
-    return;
-  }
-
   try {
     const response = await fetch('/library/scan/status');
 
@@ -2443,6 +2612,10 @@ async function loadAutoScanStatus() {
     }
 
     const data = await response.json();
+    if (data.lastScanAt) {
+      lastAutoScanAt = data.lastScanAt;
+      saveAutoScanSettings();
+    }
     renderAutoScanStatus(data);
 
     if (
@@ -2459,20 +2632,38 @@ async function loadAutoScanStatus() {
       }
     }
   } catch (err) {
-    autoScanStatus.textContent = 'Auto Scan: Unknown';
-    autoScanInterval.textContent = 'Every —';
-    autoScanLast.textContent = 'Last scan: —';
-    scanNowButton.disabled = true;
+    console.warn(`Failed to load auto scan status: ${err.message}`);
   }
 }
 
-async function scanNow() {
-  if (!scanNowButton) {
-    return;
+function stopAutoScanTimer() {
+  if (autoScanTimerId !== null) {
+    clearInterval(autoScanTimerId);
+    autoScanTimerId = null;
+  }
+}
+
+function startAutoScanTimer() {
+  stopAutoScanTimer();
+
+  // Settings UI will be added in a later phase. For now auto scan runs in background mode.
+  autoScanTimerId = setInterval(() => {
+    runAutoScan('timer');
+  }, DEFAULT_AUTO_SCAN_INTERVAL_MINUTES * 60 * 1000);
+}
+
+function restartAutoScanTimer() {
+  stopAutoScanTimer();
+  startAutoScanTimer();
+}
+
+async function runAutoScan(reason = 'manual') {
+  if (isAutoScanning) {
+    console.warn(`Library scan skipped: previous scan still running (${reason})`);
+    return null;
   }
 
-  scanNowButton.disabled = true;
-  autoScanStatus.textContent = 'Auto Scan: Scanning...';
+  isAutoScanning = true;
 
   try {
     const response = await fetch('/library/scan/now', {
@@ -2485,15 +2676,25 @@ async function scanNow() {
     }
 
     const result = await response.json();
+    lastAutoScanAt = new Date().toISOString();
+    saveAutoScanSettings();
     statusMessage.textContent = `Scan completed: ${result.inserted} added, ${result.skipped} skipped`;
     await loadTracks(searchInput.value);
     await loadFavorites();
     await loadRecentlyPlayed();
+    return result;
   } catch (err) {
     statusMessage.textContent = err.message;
+    console.warn(`Library scan failed (${reason}): ${err.message}`);
+    return null;
   } finally {
+    isAutoScanning = false;
     await loadAutoScanStatus();
   }
+}
+
+async function scanNow() {
+  await runAutoScan('manual');
 }
 
 async function toggleFavorite(track) {
@@ -2543,15 +2744,9 @@ heroCoverArt.addEventListener('error', () => {
 
 previousButton.addEventListener('click', playPreviousTrack);
 playButton.addEventListener('click', togglePlayPause);
-heroPlayButton.addEventListener('click', togglePlayPause);
 nextButton.addEventListener('click', playNextTrack);
 shuffleButton.addEventListener('click', toggleShuffle);
-heroShuffleButton.addEventListener('click', toggleShuffle);
 repeatButton.addEventListener('click', cycleRepeatMode);
-
-if (scanNowButton) {
-  scanNowButton.addEventListener('click', scanNow);
-}
 
 favoritesFilterButton.addEventListener('click', () => {
   setActiveLibraryTab('favorites');
@@ -2560,19 +2755,6 @@ favoritesFilterButton.addEventListener('click', () => {
 document.querySelectorAll('[data-library-tab]').forEach((button) => {
   button.addEventListener('click', () => {
     setActiveLibraryTab(button.dataset.libraryTab);
-  });
-});
-
-document.querySelectorAll('[data-view-more]').forEach((button) => {
-  button.addEventListener('click', () => {
-    const key = button.dataset.viewMore;
-    expandedSections[key] = !expandedSections[key];
-    if (key === 'albums') {
-      selectedAlbumName = null;
-    } else if (key === 'artists') {
-      selectedArtistName = null;
-    }
-    renderLibrary();
   });
 });
 
@@ -2667,6 +2849,7 @@ searchInput.addEventListener('input', () => {
 });
 
 restoreSavedPreferences();
+loadAutoScanSettings();
 updatePlayButton();
 updateProgress();
 isRestoringPlayer = true;
@@ -2676,4 +2859,5 @@ loadTracks();
 loadFavorites();
 loadRecentlyPlayed();
 loadAutoScanStatus();
+startAutoScanTimer();
 setInterval(loadAutoScanStatus, 30000);

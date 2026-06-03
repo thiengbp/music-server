@@ -29,7 +29,7 @@
       body {
         min-height: 100vh;
         margin: 0;
-        padding-bottom: 96px;
+        padding-bottom: 0;
         background:
           radial-gradient(circle at 22% 8%, rgba(255, 45, 85, 0.1), transparent 30%),
           linear-gradient(135deg, #1c181a 0%, #171416 54%, #211c1f 100%);
@@ -42,11 +42,11 @@
 
       .page {
         width: 100%;
-        padding: 28px 0 96px;
+        padding: 14px 0 26px;
       }
 
       .main-shell {
-        width: min(calc(100% - 48px), 1280px);
+        width: min(calc(100% - 32px), 1360px);
         margin: 0 auto;
       }
 
@@ -59,16 +59,16 @@
 
       .topbar {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(240px, 340px);
-        gap: 18px;
+        grid-template-columns: minmax(0, 1fr) minmax(280px, 370px);
+        gap: 16px;
         align-items: center;
-        margin-bottom: 18px;
+        margin-bottom: 14px;
       }
 
       h1 {
         margin: 0;
-        font-size: clamp(32px, 3vw, 36px);
-        font-weight: 780;
+        font-size: clamp(30px, 2.8vw, 42px);
+        font-weight: 820;
         letter-spacing: 0;
       }
 
@@ -87,8 +87,8 @@
 
       .search {
         width: 100%;
-        min-height: 40px;
-        padding: 0 14px 0 38px;
+        min-height: 38px;
+        padding: 0 14px 0 40px;
         border: 1px solid var(--line);
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.07);
@@ -107,8 +107,7 @@
       }
 
       .hero,
-      .library,
-      .player-inner {
+      .library {
         border: 1px solid var(--line);
         background: var(--panel);
         box-shadow: 0 14px 38px rgba(0, 0, 0, 0.22);
@@ -119,26 +118,37 @@
       .hero {
         position: relative;
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(300px, 34%);
-        gap: 16px;
+        grid-template-rows: minmax(0, 1fr) auto;
+        gap: 10px;
         align-items: stretch;
-        min-height: 144px;
-        margin-bottom: 16px;
+        min-height: 266px;
+        margin-bottom: 14px;
         padding: 14px;
         overflow: hidden;
-        border-radius: 17px;
+        border-radius: 18px;
         background:
-          radial-gradient(circle at 12% 18%, rgba(255, 45, 85, 0.08), transparent 42%),
+          radial-gradient(circle at 16% 18%, rgba(255, 45, 85, 0.16), transparent 42%),
+          radial-gradient(circle at 64% 38%, rgba(113, 151, 102, 0.18), transparent 28%),
           linear-gradient(135deg, rgba(255, 255, 255, 0.052), rgba(255, 45, 85, 0.028)),
           var(--panel);
       }
 
-      .hero-now-playing {
+      .hero-main {
         display: grid;
-        grid-template-columns: 112px minmax(0, 1fr);
-        gap: 16px;
-        align-items: center;
+        grid-template-columns: minmax(168px, 220px) minmax(210px, 1fr) minmax(230px, 30%);
+        gap: 18px;
+        align-items: stretch;
+        min-height: 184px;
+      }
+
+      .hero-now-playing {
+        display: contents;
+      }
+
+      .hero-copy {
+        align-self: center;
         min-width: 0;
+        padding-top: 4px;
       }
 
       .hero::before {
@@ -169,11 +179,12 @@
       }
 
       .hero-cover {
-        width: 112px;
-        aspect-ratio: 1;
-        border-radius: 11px;
-        font-size: 34px;
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+        width: 100%;
+        height: clamp(168px, 11.8vw, 220px);
+        min-height: 168px;
+        border-radius: 8px;
+        font-size: 32px;
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
       }
 
       .hero-cover img,
@@ -199,8 +210,8 @@
       .hero-eyebrow {
         margin: 0 0 6px;
         color: var(--accent-strong);
-        font-size: 12px;
-        font-weight: 700;
+        font-size: 10px;
+        font-weight: 820;
         text-transform: uppercase;
       }
 
@@ -208,52 +219,37 @@
         display: block;
         overflow: hidden;
         margin-bottom: 5px;
-        font-size: clamp(20px, 2.1vw, 28px);
-        font-weight: 800;
+        font-size: clamp(20px, 1.7vw, 30px);
+        font-weight: 840;
         line-height: 1.02;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
 
       .hero-meta {
-        margin: 0 0 10px;
+        margin: 0 0 5px;
         color: var(--muted);
-        font-size: 14px;
-      }
-
-      .hero-actions {
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
+        font-size: 12px;
+        line-height: 1.35;
       }
 
       .artist-info {
         position: relative;
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 54px;
-        gap: 10px;
-        align-items: end;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0;
+        align-items: start;
         min-width: 0;
         min-height: 100%;
-        padding: 10px;
+        padding: 2px 42px 0 0;
         overflow: hidden;
-        border: 1px solid rgba(255, 255, 255, 0.075);
-        border-radius: 18px;
-        background:
-          linear-gradient(135deg, rgba(255, 255, 255, 0.07), rgba(255, 45, 85, 0.035)),
-          rgba(255, 255, 255, 0.026);
-        box-shadow:
-          inset 0 1px 0 rgba(255, 255, 255, 0.08),
-          0 10px 24px rgba(0, 0, 0, 0.12);
-        backdrop-filter: blur(18px);
-        -webkit-backdrop-filter: blur(18px);
       }
 
       .artist-info-label {
         margin: 0 0 4px;
         color: var(--accent-strong);
-        font-size: 12px;
-        font-weight: 760;
+        font-size: 10px;
+        font-weight: 820;
         text-transform: uppercase;
       }
 
@@ -261,17 +257,17 @@
         display: block;
         overflow: hidden;
         margin-bottom: 4px;
-        font-size: 15px;
-        font-weight: 760;
+        font-size: 16px;
+        font-weight: 820;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
 
       .artist-info-copy {
-        max-width: 32ch;
-        margin: 0 0 8px;
+        max-width: 44ch;
+        margin: 0 0 6px;
         color: var(--muted);
-        font-size: 11px;
+        font-size: 10px;
         line-height: 1.35;
         display: -webkit-box;
         overflow: hidden;
@@ -287,52 +283,56 @@
       }
 
       .artist-source-pill {
-        min-height: 22px;
-        padding: 0 8px;
+        min-height: 20px;
+        padding: 0 7px;
         border: 1px solid rgba(255, 255, 255, 0.12);
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.06);
         color: var(--text);
-        font-size: 11px;
+        font-size: 9px;
         font-weight: 680;
-        line-height: 22px;
+        line-height: 20px;
       }
 
       .artist-stats {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 5px;
-        margin: 0 0 8px;
+        gap: 0;
+        margin: 5px 0 6px;
       }
 
       .artist-stat {
         min-width: 0;
-        padding: 5px 6px;
-        border-radius: 8px;
-        background: rgba(255, 255, 255, 0.055);
+        padding: 0 9px 0 0;
+        border-right: 1px solid rgba(255, 255, 255, 0.14);
+        background: transparent;
+      }
+
+      .artist-stat:last-child {
+        border-right: 0;
       }
 
       .artist-stat-label {
         display: block;
         overflow: hidden;
-        margin-bottom: 2px;
+        margin-bottom: 3px;
         color: var(--muted);
-        font-size: 10px;
+        font-size: 9px;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
 
       .artist-stat-value {
         display: block;
-        font-size: 12px;
-        font-weight: 760;
+        font-size: 11px;
+        font-weight: 820;
       }
 
       .artist-future-note {
         max-width: 34ch;
-        margin: 0;
+        margin: 0 0 5px;
         color: var(--soft);
-        font-size: 10px;
+        font-size: 9px;
         line-height: 1.35;
       }
 
@@ -344,7 +344,7 @@
 
       .artist-top-tracks-title {
         color: var(--muted);
-        font-size: 10px;
+        font-size: 9px;
         font-weight: 760;
         text-transform: uppercase;
       }
@@ -358,22 +358,23 @@
       }
 
       .artist-avatar-placeholder {
-        justify-self: end;
+        position: absolute;
+        right: 4px;
+        bottom: 2px;
         display: grid;
         place-items: center;
-        width: 54px;
-        height: 54px;
+        width: 30px;
+        height: 30px;
         border: 1px solid rgba(255, 255, 255, 0.12);
         border-radius: 50%;
         background:
           linear-gradient(135deg, rgba(255, 45, 85, 0.24), rgba(255, 255, 255, 0.05));
         color: rgba(255, 255, 255, 0.84);
-        font-size: 16px;
+        font-size: 10px;
         font-weight: 800;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
       }
 
-      .hero-button,
       .tab-button,
       .view-more-button {
         border: 0;
@@ -382,69 +383,151 @@
         transition: background 200ms ease, color 200ms ease, transform 200ms ease;
       }
 
-      .hero-button {
-        min-height: 34px;
-        padding: 0 14px;
-        background: rgba(255, 255, 255, 0.1);
-        color: var(--text);
-      }
-
-      .hero-button.primary {
-        background: var(--accent);
-        color: #ffffff;
-        font-weight: 700;
-      }
-
-      .hero-button.active {
-        background: rgba(255, 45, 85, 0.18);
-      }
-
       .library {
-        padding: 18px;
-        border-radius: 17px;
+        display: grid;
+        grid-template-columns: 166px minmax(0, 1fr);
+        gap: 14px;
+        height: calc(100vh - 342px);
+        min-height: 300px;
+        padding: 18px 22px 20px;
+        border-radius: 18px;
+        overflow: hidden;
+      }
+
+      .library-sidebar {
+        align-self: start;
+        min-width: 0;
+        height: 100%;
+        padding: 10px;
+        overflow: hidden auto;
+        border: 1px solid rgba(255, 255, 255, 0.055);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.028);
       }
 
       .library-header {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        align-items: end;
-        gap: 16px;
-        margin-bottom: 14px;
+        gap: 3px;
+        margin-bottom: 9px;
       }
 
       .section-title {
         margin: 0;
-        font-size: 20px;
-        font-weight: 760;
+        font-size: 16px;
+        font-weight: 820;
       }
 
       .status {
         margin: 0;
         color: var(--muted);
-        font-size: 13px;
+        font-size: 10px;
+      }
+
+      .library-stats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 8px;
+        line-height: 1.35;
+      }
+
+      .library-stats span {
+        white-space: nowrap;
       }
 
       .library-tabs {
-        display: flex;
-        gap: 8px;
-        padding-bottom: 14px;
-        overflow-x: auto;
+        display: grid;
+        gap: 2px;
+        padding: 0;
       }
 
       .tab-button {
-        flex: 0 0 auto;
-        min-height: 34px;
-        padding: 0 14px;
-        background: rgba(255, 255, 255, 0.07);
+        position: relative;
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        min-height: 28px;
+        padding: 0 8px;
+        background: transparent;
         color: var(--muted);
+        font-size: 11px;
+        text-align: left;
       }
 
       .tab-button:hover,
       .tab-button:focus,
       .tab-button.active {
-        background: rgba(255, 45, 85, 0.16);
-        color: #ffffff;
+        background: rgba(255, 45, 85, 0.12);
+        color: var(--accent-strong);
         outline: none;
+      }
+
+      .tab-button::before {
+        color: currentColor;
+        font-size: 13px;
+        line-height: 1;
+      }
+
+      .tab-button::after {
+        position: absolute;
+        top: 7px;
+        bottom: 7px;
+        left: 0;
+        width: 2px;
+        border-radius: 999px;
+        background: transparent;
+        content: "";
+      }
+
+      .tab-button.active::after {
+        background: var(--accent-strong);
+      }
+
+      .library-content {
+        min-width: 0;
+        height: 100%;
+        padding: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+
+      .library-content::-webkit-scrollbar {
+        width: 0;
+        height: 0;
+        display: none;
+      }
+
+      .tab-button[data-library-tab="songs"]::before {
+        content: "♫";
+      }
+
+      .tab-button[data-library-tab="albums"]::before {
+        content: "◉";
+      }
+
+      .tab-button[data-library-tab="artists"]::before {
+        content: "♙";
+      }
+
+      .tab-button[data-library-tab="favorites"]::before {
+        content: "♡";
+      }
+
+      .tab-button[data-library-tab="recentAdded"]::before {
+        content: "◷";
+      }
+
+      .tab-button[data-library-tab="recent"]::before {
+        content: "▥";
+      }
+
+      .tab-button[data-library-tab="playlists"]::before {
+        content: "☷";
+      }
+
+      .tab-button[data-library-tab="queue"]::before {
+        content: "☰";
       }
 
       .library-panel {
@@ -461,20 +544,19 @@
       .group-list,
       .queue-list {
         display: grid;
-        gap: 6px;
+        gap: 0;
       }
 
       .compact-list {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        column-gap: 18px;
+        grid-template-columns: 1fr;
       }
 
       .track-grid-4,
       .recent-grid,
       .queue-list,
       .detail-track-grid {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 14px 20px;
+        grid-template-columns: 1fr;
+        gap: 0;
         align-items: start;
       }
 
@@ -499,11 +581,13 @@
       .track {
         position: relative;
         display: grid;
-        grid-template-columns: 48px minmax(0, 1fr) auto auto;
+        grid-template-columns: 30px minmax(260px, 2fr) minmax(130px, 1fr) minmax(170px, 1.15fr) minmax(64px, 0.35fr) 56px 64px 44px 44px;
         gap: 12px;
         align-items: center;
-        min-height: 58px;
-        padding: 6px 8px;
+        min-height: 38px;
+        padding: 3px 5px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.055);
+        border-radius: 0;
       }
 
       .track:hover,
@@ -516,7 +600,7 @@
       .group-card:focus {
         background: rgba(255, 255, 255, 0.065);
         outline: none;
-        transform: translateY(-1px);
+        transform: none;
       }
 
       .track.active .title,
@@ -528,10 +612,10 @@
       .queue-cover,
       .detail-cover,
       .group-cover {
-        width: 44px;
-        height: 44px;
-        border-radius: 7px;
-        font-size: 16px;
+        width: 30px;
+        height: 30px;
+        border-radius: 5px;
+        font-size: 10px;
       }
 
       .track-info,
@@ -541,11 +625,76 @@
         min-width: 0;
       }
 
+      .track-info {
+        display: contents;
+      }
+
+      .songs-header-row {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: grid;
+        grid-template-columns: 30px minmax(260px, 2fr) minmax(130px, 1fr) minmax(170px, 1.15fr) minmax(64px, 0.35fr) 56px 64px 44px 44px;
+        gap: 12px;
+        align-items: center;
+        min-height: 35px;
+        padding: 0 5px;
+        border-radius: 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.075);
+        background: rgba(35, 31, 34, 0.92);
+        color: var(--muted);
+        font-size: 9px;
+        font-weight: 760;
+        letter-spacing: 0;
+        text-transform: uppercase;
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+      }
+
+      .songs-header-row > span {
+        min-width: 0;
+        text-align: center;
+        justify-self: stretch;
+      }
+
+      .track-header-row,
+      .detail-track-header-row,
+      .queue-header-row {
+        margin-bottom: 2px;
+      }
+
+      .songs-header-title {
+        grid-column: 2;
+      }
+
+      .duration {
+        grid-column: 7;
+        text-align: right;
+      }
+
+      .track > .track-info > .meta {
+        min-width: 0;
+        text-align: center;
+        justify-self: stretch;
+      }
+
+      .track > .favorite-button {
+        grid-column: 8;
+        justify-self: center;
+      }
+
+      .track > .track-actions {
+        grid-column: 9;
+        justify-self: center;
+      }
+
       .title,
       .meta,
       .duration,
       .queue-name,
       .queue-artist,
+      .queue-album,
+      .queue-duration,
       .detail-track-title,
       .detail-track-meta,
       .detail-track-duration,
@@ -561,31 +710,34 @@
       .queue-name,
       .detail-track-title,
       .group-title {
-        font-size: 13px;
+        font-size: 10px;
         font-weight: 700;
       }
 
       .meta,
       .duration,
       .queue-artist,
+      .queue-album,
+      .queue-duration,
       .detail-track-meta,
       .detail-track-duration,
       .group-meta {
-        margin-top: 2px;
+        margin-top: 1px;
         color: var(--muted);
-        font-size: 11px;
+        font-size: 9px;
       }
 
       .favorite-button {
-        display: grid;
-        place-items: center;
-        width: 30px;
-        height: 30px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
         border: 0;
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.07);
         color: rgba(255, 255, 255, 0.62);
-        font-size: 15px;
+        font-size: 11px;
         cursor: pointer;
         transition: background 200ms ease, color 200ms ease, transform 200ms ease;
       }
@@ -601,11 +753,11 @@
       .queue-item,
       .group-card {
         display: grid;
-        grid-template-columns: 44px minmax(0, 1fr) 18px auto;
-        gap: 10px;
+        grid-template-columns: 30px minmax(0, 1fr) 12px auto;
+        gap: 6px;
         align-items: center;
-        min-height: 56px;
-        padding: 6px 8px;
+        min-height: 38px;
+        padding: 3px 5px;
       }
 
       .group-card {
@@ -617,8 +769,8 @@
       .detail-header {
         display: flex;
         align-items: center;
-        gap: 14px;
-        margin-bottom: 14px;
+        gap: 10px;
+        margin-bottom: 10px;
       }
 
       .detail-title {
@@ -635,8 +787,28 @@
       }
 
       .detail-back-button {
+        display: inline-grid;
+        place-items: center;
         flex: 0 0 auto;
+        width: 30px;
+        height: 30px;
         margin-top: 0;
+        border: 0;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.07);
+        color: var(--text);
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+        transition: background 200ms ease, color 200ms ease, transform 200ms ease;
+      }
+
+      .detail-back-button:hover,
+      .detail-back-button:focus {
+        background: rgba(255, 45, 85, 0.16);
+        color: #ffffff;
+        outline: none;
+        transform: translateX(-1px);
       }
 
       .detail-view {
@@ -651,17 +823,59 @@
         min-width: 0;
       }
 
+      .detail-track-header-row {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: grid;
+        grid-template-columns: 30px minmax(180px, 1.7fr) minmax(120px, 1fr) minmax(150px, 1.2fr) 54px 24px 22px;
+        gap: 10px;
+        align-items: center;
+        min-height: 35px;
+        padding: 0 5px;
+        border-radius: 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.075);
+        background: rgba(35, 31, 34, 0.92);
+        color: var(--muted);
+        font-size: 9px;
+        font-weight: 760;
+        text-transform: uppercase;
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+      }
+
+      .detail-track-header-row > span {
+        min-width: 0;
+        overflow: hidden;
+        text-align: center;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .detail-track-header-title {
+        grid-column: 2;
+      }
+
+      .detail-track-header-duration {
+        grid-column: 5;
+      }
+
+      .detail-track-header-actions {
+        grid-column: 6 / -1;
+      }
+
       .detail-track-row {
         display: grid;
         width: 100%;
         min-width: 0;
-        grid-template-columns: 48px minmax(0, 1fr) auto auto auto;
+        grid-template-columns: 30px minmax(180px, 1.7fr) minmax(120px, 1fr) minmax(150px, 1.2fr) 54px 24px 22px;
         gap: 10px;
         align-items: center;
-        min-height: 66px;
-        padding: 7px 9px;
+        min-height: 38px;
+        padding: 3px 5px;
         border: 0;
-        border-radius: 10px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.055);
+        border-radius: 0;
         background: transparent;
         color: inherit;
         text-align: left;
@@ -682,27 +896,36 @@
       }
 
       .detail-cover {
-        width: 48px;
-        height: 48px;
-        border-radius: 8px;
-        font-size: 18px;
+        width: 30px;
+        height: 30px;
+        border-radius: 5px;
+        font-size: 10px;
+      }
+
+      .detail-track-info {
+        display: contents;
       }
 
       .track-actions {
         position: relative;
-        display: inline-grid;
-        place-items: center;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
       }
 
       .action-trigger {
-        display: grid;
-        place-items: center;
-        width: 30px;
-        height: 30px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        padding: 0;
         border: 0;
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.07);
         color: var(--muted);
+        font-size: 15px;
+        line-height: 1;
         cursor: pointer;
         transition: background 200ms ease, color 200ms ease, transform 200ms ease;
       }
@@ -716,13 +939,16 @@
       }
 
       .action-menu {
-        position: absolute;
-        right: 0;
-        bottom: calc(100% + 8px);
-        z-index: 20;
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 9999;
         display: none;
         width: 190px;
+        max-height: calc(100vh - 24px);
         padding: 7px;
+        overflow-x: hidden;
+        overflow-y: auto;
         border: 1px solid var(--line);
         border-radius: 12px;
         background: rgba(30, 27, 30, 0.96);
@@ -731,7 +957,8 @@
         -webkit-backdrop-filter: blur(22px);
       }
 
-      .track-actions.open .action-menu {
+      .track-actions.open .action-menu,
+      .action-menu.open {
         display: grid;
         gap: 4px;
       }
@@ -802,6 +1029,22 @@
         background: rgba(255, 255, 255, 0.035);
       }
 
+      .playlist-empty-state {
+        grid-column: 1 / -1;
+        gap: 4px;
+        min-height: 96px;
+      }
+
+      .playlist-empty-state strong {
+        color: var(--text);
+        font-size: 13px;
+      }
+
+      .playlist-empty-state span {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
       .playlist-view,
       .playlist-list {
         display: grid;
@@ -809,19 +1052,37 @@
       }
 
       .playlist-toolbar {
-        display: grid;
-        grid-template-columns: minmax(180px, 320px) auto;
-        gap: 10px;
+        display: flex;
         align-items: center;
+        gap: 12px;
+        flex-wrap: nowrap;
+        width: fit-content;
+        max-width: 100%;
+        margin: 0 0 2px;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
       }
 
       .playlist-input {
+        flex: 0 1 320px;
+        width: min(58vw, 320px);
+        height: 34px;
         min-height: 34px;
-        padding: 0 12px;
+        margin: 0;
+        padding: 0 14px;
         border: 1px solid var(--line);
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.07);
         color: var(--text);
+        font-size: 12px;
+        line-height: normal;
+        box-sizing: border-box;
+      }
+
+      .playlist-input::placeholder {
+        color: rgba(255, 255, 255, 0.35);
       }
 
       .playlist-input:focus {
@@ -830,23 +1091,37 @@
       }
 
       .playlist-create-button {
-        margin-top: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        min-width: 96px;
+        height: 34px;
+        min-height: 34px;
+        margin: 0;
+        padding: 0 18px;
+        font-size: 12px;
+        line-height: 1;
+        text-align: center;
+        box-sizing: border-box;
       }
 
       .playlist-list {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
       }
 
       .playlist-card {
         display: grid;
-        grid-template-columns: 54px minmax(0, 1fr);
-        gap: 10px;
+        grid-template-columns: 62px minmax(0, 1fr);
+        gap: 12px;
         align-items: center;
-        min-height: 72px;
-        padding: 8px;
-        border: 0;
-        border-radius: 10px;
-        background: rgba(255, 255, 255, 0.035);
+        min-height: 82px;
+        padding: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.065);
+        border-radius: 12px;
+        background:
+          linear-gradient(135deg, rgba(255, 255, 255, 0.052), rgba(255, 45, 85, 0.025)),
+          rgba(255, 255, 255, 0.03);
         color: inherit;
         text-align: left;
         cursor: pointer;
@@ -861,13 +1136,28 @@
       }
 
       .playlist-card .group-cover {
-        grid-row: span 2;
-        width: 54px;
-        height: 54px;
+        width: 62px;
+        height: 62px;
+        border-radius: 9px;
+      }
+
+      .playlist-card-copy {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+      }
+
+      .playlist-card .group-meta {
+        margin: 0;
+        text-align: left;
       }
 
       .playlist-detail-list .detail-track-row {
-        grid-template-columns: 48px minmax(0, 1fr) auto auto auto auto;
+        grid-template-columns: 30px minmax(180px, 1.7fr) minmax(120px, 1fr) minmax(150px, 1.2fr) 54px 24px 22px 24px;
+      }
+
+      .playlist-detail-list .detail-track-header-row {
+        grid-template-columns: 30px minmax(180px, 1.7fr) minmax(120px, 1fr) minmax(150px, 1.2fr) 54px 24px 22px 24px;
       }
 
       .group-card > span:last-child {
@@ -900,28 +1190,134 @@
       .queue-toolbar {
         grid-column: 1 / -1;
         display: flex;
-        justify-content: flex-end;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 36px;
+        margin-bottom: 8px;
+        padding: 0 5px;
+        box-sizing: border-box;
       }
 
-      .queue-list .playlist-placeholder {
+      .queue-heading {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 760;
+      }
+
+      .queue-section {
         grid-column: 1 / -1;
+        display: grid;
+        gap: 5px;
+      }
+
+      .queue-section + .queue-section,
+      .queue-empty {
+        margin-top: 8px;
+      }
+
+      .queue-section-label {
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 760;
+        text-transform: uppercase;
+      }
+
+      .queue-items {
+        display: grid;
+        gap: 0;
+      }
+
+      .queue-header-row {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: grid;
+        grid-template-columns: 30px minmax(220px, 2fr) minmax(120px, 1fr) minmax(150px, 1.1fr) 64px 44px;
+        gap: 10px;
+        align-items: center;
+        min-height: 35px;
+        padding: 0 5px;
+        border-radius: 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.075);
+        background: rgba(35, 31, 34, 0.92);
+        color: var(--muted);
+        font-size: 9px;
+        font-weight: 760;
+        text-transform: uppercase;
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+      }
+
+      .queue-header-row > span {
+        min-width: 0;
+        overflow: hidden;
+        text-align: center;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .queue-header-title {
+        grid-column: 2;
+      }
+
+      .queue-item {
+        grid-template-columns: 30px minmax(220px, 2fr) minmax(120px, 1fr) minmax(150px, 1.1fr) 64px 44px;
+        gap: 10px;
+      }
+
+      .queue-name,
+      .queue-artist,
+      .queue-album,
+      .queue-duration {
+        min-width: 0;
+        text-align: center;
+      }
+
+      .queue-name {
+        text-align: left;
+      }
+
+      .queue-now-playing {
+        cursor: default;
+      }
+
+      .queue-empty {
+        grid-column: 1 / -1;
+        display: grid;
+        gap: 4px;
+        padding: 10px 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .queue-empty strong {
+        color: var(--text);
+        font-size: 13px;
       }
 
       .clear-queue-button {
+        flex: 0 0 auto;
+        min-height: 30px;
         margin-top: 0;
+        padding: 0 12px;
+        font-size: 11px;
+        line-height: 30px;
+        text-align: center;
+        white-space: nowrap;
       }
 
       .queue-remove-button {
         display: grid;
         place-items: center;
-        width: 28px;
-        height: 28px;
+        width: 22px;
+        height: 22px;
         border: 0;
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.07);
         color: var(--muted);
         cursor: pointer;
-        font-size: 16px;
+        font-size: 13px;
         line-height: 1;
         transition: background 200ms ease, color 200ms ease, transform 200ms ease;
       }
@@ -957,35 +1353,17 @@
         display: none;
       }
 
-      .player {
-        position: fixed;
-        right: 0;
-        bottom: 10px;
-        left: 0;
-        z-index: 10;
-        width: min(calc(100% - 48px), 1280px);
-        margin: 0 auto;
-        box-sizing: border-box;
-        pointer-events: none;
-      }
-
       .player-inner {
         display: grid;
-        grid-template-columns: minmax(180px, 1fr) minmax(250px, 360px) minmax(180px, 1fr);
-        gap: 12px;
+        grid-template-columns: minmax(0, 1fr) minmax(112px, 170px);
+        gap: 16px;
         align-items: center;
         width: 100%;
-        min-height: 72px;
+        min-height: 34px;
         margin: 0 auto;
-        padding: 9px 13px;
+        padding: 8px 0 0;
         box-sizing: border-box;
-        border-radius: 17px;
-        pointer-events: auto;
-        background:
-          linear-gradient(rgba(35, 31, 34, 0.66), rgba(35, 31, 34, 0.66)),
-          var(--active-cover-url);
-        background-position: center;
-        background-size: cover;
+        border-top: 1px solid rgba(255, 255, 255, 0.095);
       }
 
       .player-cover {
@@ -996,7 +1374,7 @@
       }
 
       .now-playing {
-        display: grid;
+        display: none;
         grid-template-columns: 46px minmax(0, 1fr);
         gap: 9px;
         align-items: center;
@@ -1028,13 +1406,15 @@
 
       .controls {
         display: grid;
-        gap: 5px;
-        justify-items: center;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 13px;
+        align-items: center;
+        justify-items: stretch;
       }
 
       .transport-controls {
         display: flex;
-        gap: 6px;
+        gap: 9px;
         align-items: center;
         justify-content: center;
       }
@@ -1042,30 +1422,30 @@
       .control-button {
         display: inline-grid;
         place-items: center;
-        width: 28px;
-        height: 28px;
+        width: 22px;
+        height: 22px;
         border: 0;
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.07);
+        background: transparent;
         color: var(--text);
-        font-size: 14px;
+        font-size: 13px;
         cursor: pointer;
         transition: background 200ms ease, color 200ms ease, transform 200ms ease;
       }
 
       .control-button.secondary {
-        width: 24px;
-        height: 24px;
+        width: 20px;
+        height: 20px;
         color: var(--muted);
         font-size: 12px;
       }
 
       .control-button.primary {
-        width: 34px;
-        height: 34px;
+        width: 32px;
+        height: 32px;
         background: var(--accent);
         color: #ffffff;
-        font-size: 16px;
+        font-size: 14px;
       }
 
       .control-button:hover:not(:disabled),
@@ -1084,7 +1464,7 @@
 
       .progress-row {
         display: grid;
-        grid-template-columns: 36px minmax(116px, 1fr) 36px;
+        grid-template-columns: 30px minmax(140px, 1fr) 30px;
         gap: 7px;
         align-items: center;
         width: 100%;
@@ -1092,38 +1472,72 @@
 
       .time-label {
         color: var(--muted);
-        font-size: 11px;
+        font-size: 9px;
         text-align: center;
         font-variant-numeric: tabular-nums;
       }
 
-      .range-input {
+      input.range-input[type="range"] {
+        appearance: none;
+        -webkit-appearance: none;
         width: 100%;
+        height: 10px;
+        background: transparent;
         accent-color: var(--accent);
         cursor: pointer;
       }
 
-      .range-input::-webkit-slider-runnable-track {
-        height: 3px;
+      input.range-input[type="range"]::-webkit-slider-runnable-track {
+        appearance: none;
+        -webkit-appearance: none;
+        height: 1px;
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.16);
       }
 
-      .range-input::-webkit-slider-thumb {
-        margin-top: -5px;
+      input.range-input[type="range"]::-webkit-slider-thumb {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 6px;
+        height: 6px;
+        margin-top: -2.5px;
+        border-radius: 999px;
+        background: var(--accent);
+      }
+
+      input.range-input[type="range"]::-moz-range-track {
+        height: 1px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.16);
+      }
+
+      input.range-input[type="range"]::-moz-range-thumb {
+        width: 6px;
+        height: 6px;
+        border: 0;
+        border-radius: 999px;
+        background: var(--accent);
       }
 
       .volume-controls {
         display: grid;
-        grid-template-columns: auto minmax(64px, 106px);
+        grid-template-columns: 16px minmax(58px, 1fr);
         gap: 7px;
         align-items: center;
         justify-content: end;
       }
 
       .volume-label {
-        color: var(--muted);
-        font-size: 12px;
+        overflow: hidden;
+        width: 16px;
+        color: transparent;
+        font-size: 0;
+      }
+
+      .volume-label::before {
+        color: var(--text);
+        content: "♬";
+        font-size: 13px;
       }
 
       audio {
@@ -1136,7 +1550,7 @@
         }
 
         .page {
-          padding: 18px 0 24px;
+          padding: 14px 0 22px;
         }
 
         .main-shell {
@@ -1147,35 +1561,52 @@
           grid-template-columns: 1fr;
         }
 
+        .library {
+          grid-template-columns: 1fr;
+          gap: 10px;
+          padding: 14px;
+        }
+
+        .library-sidebar {
+          position: static;
+          padding: 8px;
+        }
+
         .library-header {
           grid-template-columns: 1fr;
         }
 
-        .hero {
-          grid-template-columns: 1fr;
-          gap: 16px;
-          padding: 18px;
+        .library-tabs {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
-        .hero-now-playing {
-          grid-template-columns: 96px minmax(0, 1fr);
-          gap: 16px;
+        .hero {
+          grid-template-columns: 1fr;
+          gap: 12px;
+          min-height: 0;
+          padding: 14px;
+        }
+
+        .hero-main {
+          grid-template-columns: 1fr;
+          min-height: 0;
         }
 
         .artist-info {
+          padding-right: 0;
           border-top: 1px solid rgba(255, 255, 255, 0.1);
           border-left: 0;
         }
 
-        .hero-cover {
-          width: 96px;
+        .artist-avatar-placeholder {
+          display: none;
         }
 
-        .player {
-          position: static;
-          width: calc(100vw - 24px);
-          margin-top: 18px;
-          pointer-events: auto;
+        .hero-cover {
+          width: min(100%, 220px);
+          height: auto;
+          min-height: 0;
+          aspect-ratio: 1;
         }
 
         .player-inner {
@@ -1185,8 +1616,13 @@
           border-radius: 17px;
         }
 
-        .compact-list {
+        .controls {
           grid-template-columns: 1fr;
+          gap: 10px;
+        }
+
+        .transport-controls {
+          gap: 12px;
         }
 
         .track-grid-4,
@@ -1196,17 +1632,30 @@
           grid-template-columns: 1fr;
         }
 
-        .detail-track-row {
-          grid-template-columns: 48px minmax(0, 1fr) auto auto;
+        .track,
+        .detail-track-row,
+        .playlist-detail-list .detail-track-row {
+          grid-template-columns: 34px minmax(0, 1fr) auto auto;
+          gap: 7px;
+          min-height: 42px;
+          border-radius: 8px;
         }
 
-        .detail-track-duration {
+        .track-info,
+        .detail-track-info {
+          display: block;
+        }
+
+        .track .duration,
+        .detail-track-duration,
+        .track .meta + .meta,
+        .detail-track-meta + .detail-track-meta {
           display: none;
         }
 
         .detail-cover {
-          width: 48px;
-          height: 48px;
+          width: 34px;
+          height: 34px;
         }
 
         .group-list {
@@ -1218,6 +1667,17 @@
           grid-template-columns: 1fr;
         }
 
+        .playlist-toolbar {
+          width: 100%;
+          box-sizing: border-box;
+          flex-wrap: wrap;
+        }
+
+        .playlist-input,
+        .playlist-create-button {
+          width: 100%;
+        }
+
         .detail-header {
           align-items: flex-start;
           flex-direction: column;
@@ -1225,17 +1685,17 @@
         }
 
         .group-card {
-          grid-template-columns: 54px minmax(0, 1fr);
-          min-height: 68px;
+          grid-template-columns: 44px minmax(0, 1fr);
+          min-height: 56px;
         }
 
         .group-cover {
-          width: 54px;
-          height: 54px;
+          width: 44px;
+          height: 44px;
         }
 
         .volume-controls {
-          grid-template-columns: auto minmax(120px, 1fr);
+          grid-template-columns: auto minmax(100px, 1fr);
           justify-content: stretch;
         }
       }
@@ -1245,7 +1705,40 @@
         .recent-grid,
         .queue-list,
         .detail-track-grid {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+          grid-template-columns: 1fr;
+        }
+
+        .track,
+        .detail-track-row,
+        .playlist-detail-list .detail-track-row {
+          grid-template-columns: 30px minmax(190px, 1.35fr) minmax(110px, 0.7fr) 56px 40px 40px;
+          gap: 8px;
+        }
+
+        .track > .duration {
+          grid-column: 4;
+        }
+
+        .track > .favorite-button {
+          grid-column: 5;
+        }
+
+        .track > .track-actions {
+          grid-column: 6;
+        }
+
+        .songs-header-row {
+          grid-template-columns: 30px minmax(190px, 1.35fr) minmax(110px, 0.7fr) 56px 40px 40px;
+          gap: 8px;
+        }
+
+        .songs-header-row span:nth-child(n + 3) {
+          display: none;
+        }
+
+        .track .meta + .meta,
+        .detail-track-meta + .detail-track-meta {
+          display: none;
         }
       }
 
@@ -1256,11 +1749,97 @@
         .detail-track-grid {
           grid-template-columns: 1fr;
         }
+
+        .track,
+        .detail-track-row,
+        .playlist-detail-list .detail-track-row {
+          grid-template-columns: 34px minmax(0, 1fr) auto auto;
+        }
+
+        .track > .favorite-button {
+          grid-column: 3;
+        }
+
+        .track > .track-actions {
+          grid-column: 4;
+        }
+
+        .songs-header-row {
+          grid-template-columns: 34px minmax(0, 1fr) auto auto;
+        }
+
+        .track-info,
+        .detail-track-info {
+          display: block;
+        }
+
+        .track .duration,
+        .detail-track-duration,
+        .track .meta + .meta,
+        .detail-track-meta + .detail-track-meta {
+          display: none;
+        }
       }
 
       @media (min-width: 761px) and (max-width: 1040px) {
         .group-list {
           grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+
+      /* v2.1 final: force playlist create form alignment */
+      .playlist-toolbar {
+        display: flex;
+        align-items: stretch;
+        gap: 12px;
+        flex-wrap: nowrap;
+        width: fit-content;
+        max-width: 100%;
+        margin: 0 0 18px;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+      }
+
+      .playlist-toolbar .playlist-input,
+      .playlist-toolbar .playlist-create-button {
+        height: 36px;
+        min-height: 36px;
+        max-height: 36px;
+        box-sizing: border-box;
+        margin: 0;
+      }
+
+      .playlist-toolbar .playlist-input {
+        flex: 0 0 340px;
+        width: 340px;
+        max-width: min(58vw, 340px);
+        padding: 0 14px;
+        line-height: 36px;
+      }
+
+      .playlist-toolbar .playlist-create-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        min-width: 96px;
+        padding: 0 18px;
+        line-height: 1;
+      }
+
+      @media (max-width: 760px) {
+        .playlist-toolbar {
+          width: 100%;
+          flex-wrap: wrap;
+        }
+
+        .playlist-toolbar .playlist-input,
+        .playlist-toolbar .playlist-create-button {
+          width: 100%;
+          max-width: 100%;
         }
       }
     </style>
@@ -1290,151 +1869,148 @@
         </header>
 
         <section class="hero" aria-label="Now playing hero">
-          <div class="hero-now-playing">
-            <div class="hero-cover" aria-hidden="true">
-              <img id="hero-cover-art" alt="" hidden>
-              <span id="hero-cover-placeholder">♪</span>
-            </div>
-            <div class="hero-copy">
-              <p class="hero-eyebrow">Now Playing</p>
-              <span id="hero-title" class="hero-title">Choose a song</span>
-              <p id="hero-meta" class="hero-meta">Your local library is ready.</p>
-              <div class="hero-actions">
-                <button id="hero-play-button" class="hero-button primary" type="button">Play</button>
-                <button id="hero-shuffle-button" class="hero-button" type="button">Shuffle</button>
+          <div class="hero-main">
+            <div class="hero-now-playing">
+              <div class="hero-cover" aria-hidden="true">
+                <img id="hero-cover-art" alt="" hidden>
+                <span id="hero-cover-placeholder">♪</span>
+              </div>
+              <div class="hero-copy">
+                <p class="hero-eyebrow">Now Playing</p>
+                <span id="hero-title" class="hero-title">Choose a song</span>
+                <p id="hero-meta" class="hero-meta">Your local library is ready.</p>
               </div>
             </div>
+            <aside class="artist-info" aria-label="Artist info">
+              <div>
+                <p class="artist-info-label">Artist Info</p>
+                <span id="hero-artist-info-title" class="artist-info-title">No artist selected</span>
+                <p id="hero-artist-info-bio" class="artist-info-copy">Artist biography and stats will appear here.</p>
+                <div id="hero-artist-info-sources" class="artist-info-sources" aria-label="Artist data sources">
+                  <span class="artist-source-pill">Local</span>
+                </div>
+                <div class="artist-stats" aria-label="Artist stats">
+                  <span class="artist-stat">
+                    <span class="artist-stat-label">Tracks</span>
+                    <span id="hero-artist-track-count" class="artist-stat-value">—</span>
+                  </span>
+                  <span class="artist-stat">
+                    <span class="artist-stat-label">Albums</span>
+                    <span id="hero-artist-album-count" class="artist-stat-value">—</span>
+                  </span>
+                  <span class="artist-stat">
+                    <span class="artist-stat-label">Country</span>
+                    <span id="hero-artist-listeners" class="artist-stat-value">—</span>
+                  </span>
+                </div>
+                <p id="hero-artist-tags" class="artist-future-note">Data will be provided by MusicBrainz / Last.fm in a future phase.</p>
+                <div id="hero-artist-top-tracks" class="artist-top-tracks" aria-label="Artist top tracks"></div>
+              </div>
+              <div id="hero-artist-avatar" class="artist-avatar-placeholder" aria-hidden="true">—</div>
+            </aside>
           </div>
-          <aside class="artist-info" aria-label="Artist info">
-            <div>
-              <p class="artist-info-label">Artist Info</p>
-              <span id="hero-artist-info-title" class="artist-info-title">No artist selected</span>
-              <p id="hero-artist-info-bio" class="artist-info-copy">Artist biography and stats will appear here.</p>
-              <div id="hero-artist-info-sources" class="artist-info-sources" aria-label="Artist data sources">
-                <span class="artist-source-pill">Local</span>
+
+          <div class="player-inner" aria-label="Playback controls">
+            <div class="now-playing">
+              <div class="player-cover" aria-hidden="true">
+                <img id="cover-art" alt="" hidden>
+                <span id="cover-placeholder">♪</span>
               </div>
-              <div class="artist-stats" aria-label="Artist stats">
-                <span class="artist-stat">
-                  <span class="artist-stat-label">Tracks</span>
-                  <span id="hero-artist-track-count" class="artist-stat-value">—</span>
-                </span>
-                <span class="artist-stat">
-                  <span class="artist-stat-label">Albums</span>
-                  <span id="hero-artist-album-count" class="artist-stat-value">—</span>
-                </span>
-                <span class="artist-stat">
-                  <span class="artist-stat-label">Country</span>
-                  <span id="hero-artist-listeners" class="artist-stat-value">—</span>
-                </span>
+              <div class="now-text">
+                <span id="now-title" class="now-title">Select a track</span>
+                <span id="now-artist" class="now-artist">Nothing playing</span>
               </div>
-              <p id="hero-artist-tags" class="artist-future-note">Data will be provided by MusicBrainz / Last.fm in a future phase.</p>
-              <div id="hero-artist-top-tracks" class="artist-top-tracks" aria-label="Artist top tracks"></div>
             </div>
-            <div id="hero-artist-avatar" class="artist-avatar-placeholder" aria-hidden="true">—</div>
-          </aside>
+
+            <div class="controls">
+              <div class="transport-controls" aria-label="Playback transport">
+                <button id="shuffle-button" class="control-button secondary" type="button" aria-label="Shuffle off" aria-pressed="false">↝</button>
+                <button id="previous-button" class="control-button" type="button" aria-label="Previous track" disabled>‹</button>
+                <button id="play-button" class="control-button primary" type="button" aria-label="Play">▶</button>
+                <button id="next-button" class="control-button" type="button" aria-label="Next track" disabled>›</button>
+                <button id="repeat-button" class="control-button secondary" type="button" aria-label="Repeat off" aria-pressed="false">↻</button>
+              </div>
+              <div class="progress-row">
+                <span id="current-time" class="time-label">0:00</span>
+                <input id="progress-input" class="range-input" type="range" min="0" max="0" value="0" step="1" aria-label="Seek">
+                <span id="duration-time" class="time-label">0:00</span>
+              </div>
+            </div>
+
+            <div class="volume-controls">
+              <span class="volume-label">Volume</span>
+              <input id="volume-input" class="range-input" type="range" min="0" max="1" value="1" step="0.01" aria-label="Volume">
+            </div>
+
+            <audio id="audio-player" preload="metadata"></audio>
+          </div>
         </section>
 
         <section class="library" aria-label="Library">
-          <div class="library-header">
-            <div>
+          <aside class="library-sidebar" aria-label="Library navigation">
+            <div class="library-header">
               <h2 class="section-title">Library</h2>
               <p id="status" class="status">Loading tracks...</p>
             </div>
-            <!-- TODO: Move Auto Scan controls into future Settings panel. -->
+
+            <div class="library-tabs" role="tablist" aria-label="Library views">
+              <button class="tab-button active" type="button" data-library-tab="songs">Songs</button>
+              <button class="tab-button" type="button" data-library-tab="albums">Albums</button>
+              <button class="tab-button" type="button" data-library-tab="artists">Artists</button>
+              <button class="tab-button" type="button" data-library-tab="favorites">Favorites</button>
+              <button class="tab-button" type="button" data-library-tab="recentAdded">Recently Added</button>
+              <button class="tab-button" type="button" data-library-tab="recent">Recently Played</button>
+              <button class="tab-button" type="button" data-library-tab="playlists">Playlists</button>
+              <button class="tab-button" type="button" data-library-tab="queue">Queue</button>
+            </div>
+          </aside>
+
+          <div class="library-content">
+            <section class="library-panel active" data-library-panel="songs">
+              <div class="songs-header-row" aria-hidden="true">
+                <span class="songs-header-title">Song name</span>
+                <span>Artist</span>
+                <span>Album</span>
+                <span>Genre</span>
+                <span>Year</span>
+              </div>
+              <div id="track-list" class="track-grid-4"></div>
+            </section>
+
+            <section class="library-panel" data-library-panel="albums">
+              <div id="albums-list" class="group-list"></div>
+            </section>
+
+            <section class="library-panel" data-library-panel="artists">
+              <div id="artists-list" class="group-list"></div>
+            </section>
+
+            <section class="library-panel" data-library-panel="favorites">
+              <div id="favorites-list" class="compact-list"></div>
+            </section>
+
+            <section class="library-panel" data-library-panel="recentAdded">
+              <div id="recently-added-list" class="track-grid-4"></div>
+            </section>
+
+            <section class="library-panel" data-library-panel="recent">
+              <p id="recently-status" class="status">No recently played tracks</p>
+              <div id="recently-list" class="recent-grid"></div>
+            </section>
+
+            <section class="library-panel" data-library-panel="playlists">
+              <div id="playlists-list" class="playlist-placeholder">No playlists yet</div>
+            </section>
+
+            <section class="library-panel" data-library-panel="queue">
+              <h3 id="queue-title" class="status">Queue (0)</h3>
+              <div id="queue-list" class="queue-list"></div>
+            </section>
           </div>
-
-          <div class="library-tabs" role="tablist" aria-label="Library tabs">
-            <button class="tab-button active" type="button" data-library-tab="songs">Songs</button>
-            <button class="tab-button" type="button" data-library-tab="albums">Albums</button>
-            <button class="tab-button" type="button" data-library-tab="artists">Artists</button>
-            <button class="tab-button" type="button" data-library-tab="favorites">Favorites</button>
-            <button class="tab-button" type="button" data-library-tab="recentAdded">Recently Added</button>
-            <button class="tab-button" type="button" data-library-tab="recent">Recently Played</button>
-            <button class="tab-button" type="button" data-library-tab="playlists">Playlists</button>
-            <button class="tab-button" type="button" data-library-tab="queue">Queue</button>
-          </div>
-
-          <section class="library-panel active" data-library-panel="songs">
-            <div id="track-list" class="track-grid-4"></div>
-            <button class="view-more-button" type="button" data-view-more="songs" hidden>View more</button>
-          </section>
-
-          <section class="library-panel" data-library-panel="albums">
-            <div id="albums-list" class="group-list"></div>
-            <button class="view-more-button" type="button" data-view-more="albums" hidden>View more</button>
-          </section>
-
-          <section class="library-panel" data-library-panel="artists">
-            <div id="artists-list" class="group-list"></div>
-            <button class="view-more-button" type="button" data-view-more="artists" hidden>View more</button>
-          </section>
-
-          <section class="library-panel" data-library-panel="favorites">
-            <div id="favorites-list" class="compact-list"></div>
-            <button class="view-more-button" type="button" data-view-more="favorites" hidden>View more</button>
-          </section>
-
-          <section class="library-panel" data-library-panel="recentAdded">
-            <div id="recently-added-list" class="track-grid-4"></div>
-            <button class="view-more-button" type="button" data-view-more="recentAdded" hidden>View more</button>
-          </section>
-
-          <section class="library-panel" data-library-panel="recent">
-            <p id="recently-status" class="status">No recently played tracks</p>
-            <div id="recently-list" class="recent-grid"></div>
-            <button class="view-more-button" type="button" data-view-more="recent" hidden>View more</button>
-          </section>
-
-          <section class="library-panel" data-library-panel="playlists">
-            <div id="playlists-list" class="playlist-placeholder">No playlists yet</div>
-          </section>
-
-          <section class="library-panel" data-library-panel="queue">
-            <h3 id="queue-title" class="status">Queue (0)</h3>
-            <div id="queue-list" class="queue-list"></div>
-            <button class="view-more-button" type="button" data-view-more="queue" hidden>View more</button>
-          </section>
         </section>
 
       </div>
     </main>
-
-    <section class="player" aria-label="Now playing">
-      <div class="player-inner">
-        <div class="now-playing">
-          <div class="player-cover" aria-hidden="true">
-            <img id="cover-art" alt="" hidden>
-            <span id="cover-placeholder">♪</span>
-          </div>
-          <div class="now-text">
-            <span id="now-title" class="now-title">Select a track</span>
-            <span id="now-artist" class="now-artist">Nothing playing</span>
-          </div>
-        </div>
-
-        <div class="controls">
-          <div class="transport-controls" aria-label="Playback controls">
-            <button id="shuffle-button" class="control-button secondary" type="button" aria-label="Shuffle off" aria-pressed="false">↝</button>
-            <button id="previous-button" class="control-button" type="button" aria-label="Previous track" disabled>‹</button>
-            <button id="play-button" class="control-button primary" type="button" aria-label="Play">▶</button>
-            <button id="next-button" class="control-button" type="button" aria-label="Next track" disabled>›</button>
-            <button id="repeat-button" class="control-button secondary" type="button" aria-label="Repeat off" aria-pressed="false">↻</button>
-          </div>
-          <div class="progress-row">
-            <span id="current-time" class="time-label">0:00</span>
-            <input id="progress-input" class="range-input" type="range" min="0" max="0" value="0" step="1" aria-label="Seek">
-            <span id="duration-time" class="time-label">0:00</span>
-          </div>
-        </div>
-
-        <div class="volume-controls">
-          <span class="volume-label">Volume</span>
-          <input id="volume-input" class="range-input" type="range" min="0" max="1" value="1" step="0.01" aria-label="Volume">
-        </div>
-
-        <audio id="audio-player" preload="metadata"></audio>
-      </div>
-    </section>
 
     <script src="/app.js"></script>
   </body>
