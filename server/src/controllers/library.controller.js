@@ -61,7 +61,7 @@ async function scanConfiguredLibrary(req, res) {
   try {
     const result = await runConfiguredLibraryScan();
 
-    if (result && result.skipped) {
+    if (result && result.skipped === true && result.reason === 'previous scan still running') {
       return res.status(409).json({
         error: 'Library scan already running'
       });

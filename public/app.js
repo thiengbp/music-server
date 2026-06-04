@@ -6,12 +6,15 @@ const PLAYLISTS_BACKUP_STORAGE_KEY = `${PLAYLISTS_STORAGE_KEY}.backup`;
 const PLAYER_STATE_STORAGE_KEY = 'music-server.player-state.v1';
 const RECENT_TRACKS_STORAGE_KEY = 'music-server.recent-tracks.v1';
 const LEARNED_DURATIONS_STORAGE_KEY = 'music-server.learned-durations.v1';
+const AUTO_SCAN_ENABLED_STORAGE_KEY = 'musicServer.autoScan.enabled';
+const AUTO_SCAN_INTERVAL_STORAGE_KEY = 'musicServer.autoScan.intervalMinutes';
 const AUTO_SCAN_LAST_SCAN_STORAGE_KEY = 'musicServer.autoScan.lastScanAt';
 const ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v1';
 const ARTIST_INFO_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const COVER_URL_VERSION = 'v2';
 const RECENT_TRACK_LIMIT = 50;
 const DEFAULT_AUTO_SCAN_INTERVAL_MINUTES = 30;
+const AUTO_SCAN_INTERVAL_OPTIONS = [5, 10, 15, 30, 60];
 
 const trackList = document.getElementById('track-list');
 const albumsList = document.getElementById('albums-list');
@@ -53,6 +56,16 @@ const heroArtistListeners = document.getElementById('hero-artist-listeners');
 const heroArtistTags = document.getElementById('hero-artist-tags');
 const heroArtistTopTracks = document.getElementById('hero-artist-top-tracks');
 const heroArtistAvatar = document.getElementById('hero-artist-avatar');
+const settingsButton = document.getElementById('settings-button');
+const settingsOverlay = document.getElementById('settings-overlay');
+const settingsCloseButton = document.getElementById('settings-close-button');
+const autoScanToggle = document.getElementById('auto-scan-toggle');
+const autoScanIntervalSelect = document.getElementById('auto-scan-interval');
+const autoScanModeLabel = document.getElementById('auto-scan-mode');
+const autoScanIntervalLabel = document.getElementById('auto-scan-interval-label');
+const autoScanStatusLabel = document.getElementById('auto-scan-status');
+const autoScanLastLabel = document.getElementById('auto-scan-last');
+const scanNowButton = document.getElementById('scan-now-button');
 
 let searchTimer = null;
 let activeTrackId = null;
@@ -71,6 +84,9 @@ let lastSeenAutoScanAt = null;
 let autoScanTimerId = null;
 let isAutoScanning = false;
 let lastAutoScanAt = null;
+let autoScanEnabled = true;
+let autoScanIntervalMinutes = DEFAULT_AUTO_SCAN_INTERVAL_MINUTES;
+let autoScanStatus = 'Idle';
 let savedPlayerState = normalizePlayerState(readStoredObject(PLAYER_STATE_STORAGE_KEY));
 let queueTrackIds = savedPlayerState.queueTrackIds.length > 0
   ? [...savedPlayerState.queueTrackIds]
@@ -125,13 +141,108 @@ function writeStoredObject(key, value) {
 }
 
 function loadAutoScanSettings() {
+  const enabledValue = localStorage.getItem(AUTO_SCAN_ENABLED_STORAGE_KEY);
+  const intervalValue = Number(localStorage.getItem(AUTO_SCAN_INTERVAL_STORAGE_KEY));
+
+  localStorage.removeItem('musicServer.library.path');
+  localStorage.removeItem('musicServer.autoScan.libraryPath');
+
+  if (enabledValue === null) {
+    autoScanEnabled = true;
+  } else if (enabledValue === 'true') {
+    autoScanEnabled = true;
+  } else if (enabledValue === 'false') {
+    autoScanEnabled = false;
+  } else {
+    autoScanEnabled = true;
+  }
+
+  autoScanIntervalMinutes = AUTO_SCAN_INTERVAL_OPTIONS.includes(intervalValue)
+    ? intervalValue
+    : DEFAULT_AUTO_SCAN_INTERVAL_MINUTES;
   lastAutoScanAt = localStorage.getItem(AUTO_SCAN_LAST_SCAN_STORAGE_KEY);
 }
 
 function saveAutoScanSettings() {
+  localStorage.setItem(AUTO_SCAN_ENABLED_STORAGE_KEY, String(autoScanEnabled));
+  localStorage.setItem(AUTO_SCAN_INTERVAL_STORAGE_KEY, String(autoScanIntervalMinutes));
+
   if (lastAutoScanAt) {
     localStorage.setItem(AUTO_SCAN_LAST_SCAN_STORAGE_KEY, lastAutoScanAt);
   }
+}
+
+function formatAutoScanTime(value) {
+  if (!value) {
+    return '—';
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return '—';
+  }
+
+  return date.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+}
+
+function updateAutoScanStatus(status) {
+  autoScanStatus = status;
+  renderSettingsPanel();
+}
+
+function renderSettingsPanel() {
+  if (!autoScanToggle || !autoScanIntervalSelect) {
+    return;
+  }
+
+  autoScanToggle.checked = autoScanEnabled;
+  autoScanIntervalSelect.value = String(autoScanIntervalMinutes);
+  autoScanIntervalSelect.disabled = !autoScanEnabled;
+
+  if (autoScanModeLabel) {
+    autoScanModeLabel.textContent = autoScanEnabled ? 'On' : 'Off';
+  }
+
+  if (autoScanIntervalLabel) {
+    autoScanIntervalLabel.textContent = `${autoScanIntervalMinutes} min`;
+  }
+
+  if (autoScanStatusLabel) {
+    autoScanStatusLabel.textContent = autoScanStatus;
+  }
+
+  if (autoScanLastLabel) {
+    autoScanLastLabel.textContent = formatAutoScanTime(lastAutoScanAt);
+  }
+
+  if (scanNowButton) {
+    scanNowButton.disabled = isAutoScanning;
+    scanNowButton.textContent = isAutoScanning ? 'Scanning...' : 'Run scan now';
+  }
+}
+
+function openSettings() {
+  if (!settingsOverlay) {
+    return;
+  }
+
+  renderSettingsPanel();
+  settingsOverlay.hidden = false;
+  settingsCloseButton?.focus();
+}
+
+function closeSettings() {
+  if (!settingsOverlay) {
+    return;
+  }
+
+  settingsOverlay.hidden = true;
+  settingsButton?.focus();
 }
 
 function trackIdFromValue(value) {
@@ -2601,6 +2712,8 @@ function renderAutoScanStatus(status) {
     lastAutoScanAt = status.lastScanAt;
     saveAutoScanSettings();
   }
+
+  renderSettingsPanel();
 }
 
 async function loadAutoScanStatus() {
@@ -2646,55 +2759,119 @@ function stopAutoScanTimer() {
 function startAutoScanTimer() {
   stopAutoScanTimer();
 
-  // Settings UI will be added in a later phase. For now auto scan runs in background mode.
+  if (!autoScanEnabled) {
+    renderSettingsPanel();
+    return;
+  }
+
   autoScanTimerId = setInterval(() => {
     runAutoScan('timer');
-  }, DEFAULT_AUTO_SCAN_INTERVAL_MINUTES * 60 * 1000);
+  }, autoScanIntervalMinutes * 60 * 1000);
+  renderSettingsPanel();
 }
 
 function restartAutoScanTimer() {
   stopAutoScanTimer();
-  startAutoScanTimer();
+
+  if (autoScanEnabled) {
+    startAutoScanTimer();
+  } else {
+    renderSettingsPanel();
+  }
+}
+
+async function requestLibraryScan() {
+  const response = await fetch('/library/scan/now', {
+    method: 'POST'
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    const responseBody = errorData.message
+      ? `${errorData.error || 'Failed to scan library'}: ${errorData.message}`
+      : errorData.error || 'No response body';
+    throw new Error(
+      `/library/scan/now failed (${response.status}): ${responseBody}`
+    );
+  }
+
+  return response.json();
 }
 
 async function runAutoScan(reason = 'manual') {
+  if (reason === 'timer' && !autoScanEnabled) {
+    return null;
+  }
+
   if (isAutoScanning) {
     console.warn(`Library scan skipped: previous scan still running (${reason})`);
     return null;
   }
 
   isAutoScanning = true;
+  updateAutoScanStatus('Scanning');
 
   try {
-    const response = await fetch('/library/scan/now', {
-      method: 'POST'
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `Failed to scan library: ${response.status}`);
-    }
-
-    const result = await response.json();
+    const result = await requestLibraryScan();
     lastAutoScanAt = new Date().toISOString();
     saveAutoScanSettings();
     statusMessage.textContent = `Scan completed: ${result.inserted} added, ${result.skipped} skipped`;
     await loadTracks(searchInput.value);
     await loadFavorites();
     await loadRecentlyPlayed();
+    updateAutoScanStatus('Idle');
     return result;
   } catch (err) {
     statusMessage.textContent = err.message;
+    updateAutoScanStatus('Error');
     console.warn(`Library scan failed (${reason}): ${err.message}`);
     return null;
   } finally {
     isAutoScanning = false;
+    renderSettingsPanel();
     await loadAutoScanStatus();
   }
 }
 
 async function scanNow() {
   await runAutoScan('manual');
+}
+
+function bindSettingsControls() {
+  settingsButton?.addEventListener('click', openSettings);
+  settingsCloseButton?.addEventListener('click', closeSettings);
+
+  settingsOverlay?.addEventListener('click', (event) => {
+    if (event.target === settingsOverlay) {
+      closeSettings();
+    }
+  });
+
+  autoScanToggle?.addEventListener('change', () => {
+    autoScanEnabled = autoScanToggle.checked;
+    autoScanStatus = 'Idle';
+    saveAutoScanSettings();
+    restartAutoScanTimer();
+    renderSettingsPanel();
+  });
+
+  autoScanIntervalSelect?.addEventListener('change', () => {
+    const nextInterval = Number(autoScanIntervalSelect.value);
+
+    if (!AUTO_SCAN_INTERVAL_OPTIONS.includes(nextInterval)) {
+      autoScanIntervalSelect.value = String(autoScanIntervalMinutes);
+      return;
+    }
+
+    autoScanIntervalMinutes = nextInterval;
+    saveAutoScanSettings();
+    restartAutoScanTimer();
+    renderSettingsPanel();
+  });
+
+  scanNowButton?.addEventListener('click', () => {
+    scanNow();
+  });
 }
 
 async function toggleFavorite(track) {
@@ -2812,6 +2989,16 @@ audioPlayer.addEventListener('ended', () => {
 });
 
 document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && settingsOverlay && !settingsOverlay.hidden) {
+    event.preventDefault();
+    closeSettings();
+    return;
+  }
+
+  if (event.target instanceof Element && event.target.closest('.settings-panel')) {
+    return;
+  }
+
   if (document.activeElement === searchInput) {
     return;
   }
@@ -2850,6 +3037,9 @@ searchInput.addEventListener('input', () => {
 
 restoreSavedPreferences();
 loadAutoScanSettings();
+saveAutoScanSettings();
+bindSettingsControls();
+renderSettingsPanel();
 updatePlayButton();
 updateProgress();
 isRestoringPlayer = true;

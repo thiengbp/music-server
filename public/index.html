@@ -59,7 +59,7 @@
 
       .topbar {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(280px, 370px);
+        grid-template-columns: minmax(0, 1fr) minmax(280px, 370px) auto;
         gap: 16px;
         align-items: center;
         margin-bottom: 14px;
@@ -104,6 +104,28 @@
 
       .filters {
         display: none;
+      }
+
+      .settings-button {
+        display: inline-grid;
+        place-items: center;
+        width: 38px;
+        height: 38px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.07);
+        color: var(--text);
+        font-size: 16px;
+        cursor: pointer;
+        transition: background 200ms ease, border-color 200ms ease, transform 200ms ease;
+      }
+
+      .settings-button:hover,
+      .settings-button:focus {
+        border-color: rgba(255, 45, 85, 0.52);
+        background: rgba(255, 45, 85, 0.15);
+        outline: none;
+        transform: translateY(-1px);
       }
 
       .hero,
@@ -1544,6 +1566,221 @@
         display: none;
       }
 
+      .settings-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 30;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: rgba(10, 9, 11, 0.56);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+      }
+
+      .settings-overlay[hidden] {
+        display: none;
+      }
+
+      .settings-panel {
+        width: min(100%, 460px);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: rgba(31, 29, 32, 0.92);
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+        color: var(--text);
+      }
+
+      .settings-header,
+      .settings-section {
+        padding: 18px;
+      }
+
+      .settings-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .settings-title {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 760;
+      }
+
+      .settings-close-button {
+        display: inline-grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        border: 0;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.07);
+        color: var(--text);
+        cursor: pointer;
+        transition: background 200ms ease, transform 200ms ease;
+      }
+
+      .settings-close-button:hover,
+      .settings-close-button:focus {
+        background: rgba(255, 45, 85, 0.16);
+        outline: none;
+        transform: translateY(-1px);
+      }
+
+      .settings-section {
+        display: grid;
+        gap: 14px;
+      }
+
+      .settings-section-title {
+        margin: 0;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 780;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .settings-card {
+        display: grid;
+        gap: 14px;
+        padding: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.045);
+      }
+
+      .settings-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .settings-label {
+        display: grid;
+        gap: 3px;
+        min-width: 0;
+      }
+
+      .settings-label strong {
+        font-size: 13px;
+      }
+
+      .settings-label span,
+      .settings-meta {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .settings-select {
+        min-width: 120px;
+        height: 34px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--text);
+        padding: 0 12px;
+        font: inherit;
+      }
+
+      .settings-toggle {
+        position: relative;
+        display: inline-flex;
+        width: 46px;
+        height: 26px;
+      }
+
+      .settings-toggle input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .settings-toggle span {
+        position: relative;
+        width: 100%;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.13);
+        cursor: pointer;
+        transition: background 200ms ease;
+      }
+
+      .settings-toggle span::after {
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 20px;
+        height: 20px;
+        border-radius: 999px;
+        background: #ffffff;
+        content: "";
+        transition: transform 200ms ease;
+      }
+
+      .settings-toggle input:checked + span {
+        background: var(--accent);
+      }
+
+      .settings-toggle input:checked + span::after {
+        transform: translateX(20px);
+      }
+
+      .settings-status-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .settings-status-item {
+        display: grid;
+        gap: 4px;
+        padding: 10px;
+        border-radius: 12px;
+        background: rgba(0, 0, 0, 0.18);
+      }
+
+      .settings-status-item span {
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .settings-status-item strong {
+        overflow: hidden;
+        font-size: 12px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .settings-action-button {
+        justify-self: start;
+        height: 34px;
+        border: 0;
+        border-radius: 999px;
+        background: rgba(255, 45, 85, 0.18);
+        color: var(--text);
+        padding: 0 14px;
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+        transition: background 200ms ease, transform 200ms ease;
+      }
+
+      .settings-action-button:hover,
+      .settings-action-button:focus {
+        background: rgba(255, 45, 85, 0.26);
+        outline: none;
+        transform: translateY(-1px);
+      }
+
+      .settings-action-button:disabled {
+        color: rgba(255, 255, 255, 0.42);
+        cursor: wait;
+        transform: none;
+      }
+
       @media (max-width: 760px) {
         body {
           padding-bottom: 0;
@@ -1558,7 +1795,11 @@
         }
 
         .topbar {
-          grid-template-columns: 1fr;
+          grid-template-columns: 1fr auto;
+        }
+
+        .topbar h1 {
+          grid-column: 1 / -1;
         }
 
         .library {
@@ -1858,6 +2099,7 @@
               autocomplete="off"
             >
           </div>
+          <button id="settings-button" class="settings-button" type="button" aria-label="Open settings">⚙</button>
           <div class="filters" aria-label="Track filters">
             <button
               id="favorites-filter"
@@ -2011,6 +2253,67 @@
 
       </div>
     </main>
+
+    <div id="settings-overlay" class="settings-overlay" hidden>
+      <section class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <header class="settings-header">
+          <h2 id="settings-title" class="settings-title">Settings</h2>
+          <button id="settings-close-button" class="settings-close-button" type="button" aria-label="Close settings">×</button>
+        </header>
+
+        <div class="settings-section">
+          <h3 class="settings-section-title">Library</h3>
+          <div class="settings-card">
+            <div class="settings-row">
+              <label class="settings-label" for="auto-scan-toggle">
+                <strong>Auto Scan</strong>
+                <span>Keep the library refreshed in the background.</span>
+              </label>
+              <label class="settings-toggle">
+                <input id="auto-scan-toggle" type="checkbox">
+                <span aria-hidden="true"></span>
+              </label>
+            </div>
+
+            <div class="settings-row">
+              <label class="settings-label" for="auto-scan-interval">
+                <strong>Interval</strong>
+                <span>How often the library scan runs.</span>
+              </label>
+              <select id="auto-scan-interval" class="settings-select">
+                <option value="5">5 min</option>
+                <option value="10">10 min</option>
+                <option value="15">15 min</option>
+                <option value="30">30 min</option>
+                <option value="60">60 min</option>
+              </select>
+            </div>
+
+            <div class="settings-status-grid" aria-live="polite">
+              <div class="settings-status-item">
+                <span>Auto Scan</span>
+                <strong id="auto-scan-mode">On</strong>
+              </div>
+              <div class="settings-status-item">
+                <span>Interval</span>
+                <strong id="auto-scan-interval-label">30 min</strong>
+              </div>
+              <div class="settings-status-item">
+                <span>Status</span>
+                <strong id="auto-scan-status">Idle</strong>
+              </div>
+              <div class="settings-status-item">
+                <span>Last scan</span>
+                <strong id="auto-scan-last">—</strong>
+              </div>
+            </div>
+
+            <button id="scan-now-button" class="settings-action-button" type="button">Run scan now</button>
+            <p class="settings-meta">Library path is managed by the server configuration.</p>
+          </div>
+        </div>
+      </section>
+    </div>
 
     <script src="/app.js"></script>
   </body>
