@@ -1,6 +1,7 @@
 'use strict';
 
 const db = require('../config/database');
+const artistEnrichmentService = require('../services/artist-enrichment.service');
 
 function dbAll(sql, params = []) {
   return new Promise((resolve, reject) => {
@@ -129,18 +130,36 @@ async function getArtistInfo(req, res) {
         return dateDifference || b.id - a.id;
       })
       .slice(0, 5);
-    const genres = inferLocalTags(resolvedArtistName, artistTracks.slice(0, 25));
+    const localGenres = inferLocalTags(resolvedArtistName, artistTracks.slice(0, 25));
+    const canEnrichOnline = artistTracks.length > 0
+      && artistMatchKey(resolvedArtistName, true) !== artistMatchKey('Unknown artist', true);
+    let onlineMetadata = null;
+
+    if (canEnrichOnline) {
+      try {
+        onlineMetadata = await artistEnrichmentService.enrichArtist(resolvedArtistName);
+      } catch (err) {
+        console.warn(`Artist enrichment unavailable for "${resolvedArtistName}": ${err.message}`);
+      }
+    }
+    const genres = artistEnrichmentService.mergeTags(
+      localGenres,
+      onlineMetadata?.tags || []
+    ).slice(0, 6);
+    const onlineSources = onlineMetadata?.sources || [];
+    const source = ['local', ...onlineSources].join('+');
     const artistInfo = {
       name: resolvedArtistName,
       artist: resolvedArtistName,
-      bio: null,
-      country: null,
+      bio: onlineMetadata?.bio || null,
+      country: onlineMetadata?.country || null,
+      area: onlineMetadata?.area || null,
       genres,
-      image: null,
-      source: 'local',
+      image: onlineMetadata?.image || null,
+      source,
       tags: genres,
-      listeners: null,
-      playcount: null,
+      listeners: onlineMetadata?.listeners ?? null,
+      playcount: onlineMetadata?.playcount ?? null,
       albumCount: albums.length,
       trackCount: artistTracks.length,
       albums: albums.map((album) => ({
@@ -155,10 +174,14 @@ async function getArtistInfo(req, res) {
         duration: track.duration,
         cover: `/tracks/${track.id}/cover`
       })),
-      externalIds: {},
-      updatedAt: new Date().toISOString(),
-      cached: false
-      // TODO: A future phase can enrich this local response with MusicBrainz or Last.fm.
+      externalIds: {
+        musicbrainz: onlineMetadata?.musicbrainzId || null,
+        lastfm: onlineMetadata?.lastfmUrl || null
+      },
+      disambiguation: onlineMetadata?.musicbrainzDisambiguation || null,
+      artistType: onlineMetadata?.musicbrainzType || null,
+      updatedAt: onlineMetadata?.updatedAt || new Date().toISOString(),
+      cached: onlineMetadata?.cached || false
     };
 
     return res.json(artistInfo);
@@ -168,6 +191,7 @@ async function getArtistInfo(req, res) {
       artist: artistName,
       bio: null,
       country: null,
+      area: null,
       genres: [],
       image: null,
       source: 'local',

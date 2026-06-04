@@ -9,8 +9,8 @@ const LEARNED_DURATIONS_STORAGE_KEY = 'music-server.learned-durations.v1';
 const AUTO_SCAN_ENABLED_STORAGE_KEY = 'musicServer.autoScan.enabled';
 const AUTO_SCAN_INTERVAL_STORAGE_KEY = 'musicServer.autoScan.intervalMinutes';
 const AUTO_SCAN_LAST_SCAN_STORAGE_KEY = 'musicServer.autoScan.lastScanAt';
-const ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v2';
-const LEGACY_ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v1';
+const ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v4';
+const LEGACY_ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v3';
 const ARTIST_INFO_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const COVER_URL_VERSION = 'v2';
 const RECENT_TRACK_LIMIT = 50;
@@ -823,6 +823,9 @@ function emptyArtistInfo(artistName = 'No artist selected') {
     tags: [],
     genres: [],
     country: null,
+    area: null,
+    disambiguation: null,
+    artistType: null,
     listeners: null,
     playcount: null,
     albumCount: null,
@@ -870,7 +873,8 @@ function accentInsensitiveArtistKey(artistName) {
 function isFreshArtistInfo(info) {
   if (
     !info ||
-    info.source !== 'local' ||
+    typeof info.source !== 'string' ||
+    !info.source.split('+').includes('local') ||
     !Number.isInteger(info.trackCount) ||
     !Number.isInteger(info.albumCount) ||
     !info.updatedAt
@@ -952,20 +956,22 @@ function localArtistInfoFallback(artistName) {
 }
 
 function normalizeArtistInfoPayload(payload, artistName) {
-  const genres = Array.isArray(payload.genres)
-    ? payload.genres
-    : Array.isArray(payload.tags)
-      ? payload.tags
-      : [];
+  const genres = [...new Set([
+    ...(Array.isArray(payload.genres) ? payload.genres : []),
+    ...(Array.isArray(payload.tags) ? payload.tags : [])
+  ].filter(Boolean))];
 
   return {
     artistName: payload.name || payload.artist || artistName,
-    bio: payload.bio || null,
+    bio: payload.bio || payload.description || payload.summary || null,
     image: payload.image || null,
     source: payload.source || 'local',
     tags: genres,
     genres,
     country: payload.country || null,
+    area: payload.area || payload.originArea || null,
+    disambiguation: payload.disambiguation || null,
+    artistType: payload.artistType || payload.type || null,
     listeners: payload.listeners,
     playcount: payload.playcount,
     albumCount: Number.isInteger(payload.albumCount) ? payload.albumCount : null,
@@ -990,7 +996,13 @@ function renderSourceBadges(info) {
   const sources = [];
 
   if (info.source) {
-    sources.push(sourceLabels[info.source] || info.source);
+    info.source.split('+').forEach((source) => {
+      const label = sourceLabels[source] || source;
+
+      if (!sources.includes(label)) {
+        sources.push(label);
+      }
+    });
   }
 
   heroArtistInfoSources.replaceChildren(
@@ -1008,12 +1020,25 @@ function renderHeroArtistInfo(info) {
   const visibleTags = artistInfo.tags && artistInfo.tags.length > 0
     ? artistInfo.tags.slice(0, 3)
     : [];
+  const metadataItems = [];
+  const hasMusicBrainzSource = typeof artistInfo.source === 'string'
+    && artistInfo.source.split('+').includes('musicbrainz');
+  const metadataDescription = artistInfo.bio
+    || artistInfo.disambiguation
+    || (artistInfo.area ? `Area: ${artistInfo.area}` : null)
+    || (hasMusicBrainzSource && artistInfo.artistType ? artistInfo.artistType : null);
+
+  if (artistInfo.area) {
+    metadataItems.push(`Area · ${artistInfo.area}`);
+  }
+
+  metadataItems.push(...visibleTags);
 
   heroArtistInfoTitle.textContent = artistInfo.artistName;
   heroArtistAvatar.textContent = artistInitials(artistInfo.artistName);
   heroArtistInfoBio.textContent = artistInfo.loading
     ? 'Loading artist info...'
-    : artistInfo.bio || 'Additional artist information is unavailable.';
+    : metadataDescription || 'Additional artist information is unavailable.';
   heroArtistTrackCount.textContent = Number.isInteger(artistInfo.trackCount)
     ? String(artistInfo.trackCount)
     : '—';
@@ -1023,8 +1048,8 @@ function renderHeroArtistInfo(info) {
   heroArtistListeners.textContent = artistInfo.country || '—';
   heroArtistTags.textContent = artistInfo.error
     ? artistInfo.error
-    : visibleTags.length > 0
-      ? visibleTags.join(' · ')
+    : metadataItems.length > 0
+      ? metadataItems.join(' · ')
       : '—';
   heroArtistTopTracks.replaceChildren();
 
