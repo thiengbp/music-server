@@ -9,7 +9,8 @@ const LEARNED_DURATIONS_STORAGE_KEY = 'music-server.learned-durations.v1';
 const AUTO_SCAN_ENABLED_STORAGE_KEY = 'musicServer.autoScan.enabled';
 const AUTO_SCAN_INTERVAL_STORAGE_KEY = 'musicServer.autoScan.intervalMinutes';
 const AUTO_SCAN_LAST_SCAN_STORAGE_KEY = 'musicServer.autoScan.lastScanAt';
-const ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v1';
+const ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v2';
+const LEGACY_ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v1';
 const ARTIST_INFO_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const COVER_URL_VERSION = 'v2';
 const RECENT_TRACK_LIMIT = 50;
@@ -98,7 +99,8 @@ let queueHistory = Array.isArray(savedPlayerState.queueHistory)
 let playbackContext = normalizePlaybackContext(savedPlayerState.playbackContext);
 let playlists = readStoredPlaylists();
 let recentTrackIds = normalizeTrackIds(readStoredArray(RECENT_TRACKS_STORAGE_KEY), RECENT_TRACK_LIMIT);
-let artistInfoCache = readStoredObject(ARTIST_INFO_CACHE_KEY);
+let artistInfoCache = new Map(Object.entries(readStoredObject(ARTIST_INFO_CACHE_KEY)));
+localStorage.removeItem(LEGACY_ARTIST_INFO_CACHE_KEY);
 let activeArtistInfoRequest = null;
 let pendingResumeTime = null;
 let hasRestoredPlayer = false;
@@ -473,6 +475,42 @@ function saveRecentlyPlayed() {
   writeStoredArray(RECENT_TRACKS_STORAGE_KEY, recentTrackIds);
 }
 
+function pruneMissingTrackReferences() {
+  const validTrackIds = new Set(allTracks.map((track) => track.id));
+  const keepValidTrackIds = (trackIds) => normalizeTrackIds(trackIds).filter((trackId) => validTrackIds.has(trackId));
+
+  queueTrackIds = keepValidTrackIds(queueTrackIds);
+  queueHistory = queueHistory.filter((entry) => validTrackIds.has(entry.trackId));
+  recentTrackIds = keepValidTrackIds(recentTrackIds).slice(0, RECENT_TRACK_LIMIT);
+  playbackContext = {
+    ...playbackContext,
+    orderedTrackIds: keepValidTrackIds(playbackContext.orderedTrackIds)
+  };
+  playlists = playlists.map((playlist) => ({
+    ...playlist,
+    trackIds: keepValidTrackIds(playlistTrackIds(playlist)),
+    tracks: Array.isArray(playlist.tracks)
+      ? playlist.tracks.filter((track) => validTrackIds.has(trackIdFromValue(track)))
+      : undefined
+  }));
+
+  if (queueActiveIndex >= queueTrackIds.length) {
+    queueActiveIndex = -1;
+  }
+
+  writeStoredArray(QUEUE_STORAGE_KEY, queueTrackIds);
+  writeStoredArray(RECENT_TRACKS_STORAGE_KEY, recentTrackIds);
+  writeStoredArray(PLAYLISTS_STORAGE_KEY, playlists);
+
+  const storedPlayerState = readStoredObject(PLAYER_STATE_STORAGE_KEY);
+  writeStoredObject(PLAYER_STATE_STORAGE_KEY, {
+    ...storedPlayerState,
+    queueTrackIds,
+    queueHistory,
+    playbackContext
+  });
+}
+
 function savePlayerState() {
   if (isRestoringPlayer) {
     return;
@@ -773,7 +811,7 @@ function getLibraryStats() {
 }
 
 function isUnknownArtistName(artistName) {
-  return !artistName || artistName === 'Unknown artist';
+  return !artistName;
 }
 
 function emptyArtistInfo(artistName = 'No artist selected') {
@@ -789,7 +827,9 @@ function emptyArtistInfo(artistName = 'No artist selected') {
     playcount: null,
     albumCount: null,
     trackCount: null,
+    albums: [],
     topTracks: [],
+    externalIds: {},
     loading: false,
     error: null,
     updatedAt: null
@@ -818,11 +858,23 @@ function artistInitials(artistName) {
 }
 
 function cacheKeyForArtist(artistName) {
-  return artistName.trim().toLowerCase();
+  return artistName.normalize('NFC').trim().toLocaleLowerCase('vi');
+}
+
+function accentInsensitiveArtistKey(artistName) {
+  return cacheKeyForArtist(artistName)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
 }
 
 function isFreshArtistInfo(info) {
-  if (!info || !info.updatedAt) {
+  if (
+    !info ||
+    info.source !== 'local' ||
+    !Number.isInteger(info.trackCount) ||
+    !Number.isInteger(info.albumCount) ||
+    !info.updatedAt
+  ) {
     return false;
   }
 
@@ -835,8 +887,68 @@ function saveArtistInfoToCache(info) {
     return;
   }
 
-  artistInfoCache[cacheKeyForArtist(info.artistName)] = info;
-  writeStoredObject(ARTIST_INFO_CACHE_KEY, artistInfoCache);
+  artistInfoCache.set(cacheKeyForArtist(info.artistName), info);
+  writeStoredObject(ARTIST_INFO_CACHE_KEY, Object.fromEntries(artistInfoCache));
+}
+
+function clearArtistInfoCache() {
+  artistInfoCache = new Map();
+  localStorage.removeItem(ARTIST_INFO_CACHE_KEY);
+}
+
+function refreshActiveArtistInfo() {
+  const activeTrack = findTrackById(activeTrackId);
+
+  if (activeTrack) {
+    loadArtistInfoForTrack(activeTrack);
+  }
+}
+
+function localArtistInfoFallback(artistName) {
+  const exactKey = cacheKeyForArtist(artistName);
+  let artistTracks = allTracks.filter((track) => cacheKeyForArtist(formatArtist(track)) === exactKey);
+
+  if (artistTracks.length === 0) {
+    const fallbackKey = accentInsensitiveArtistKey(artistName);
+    artistTracks = allTracks.filter(
+      (track) => accentInsensitiveArtistKey(formatArtist(track)) === fallbackKey
+    );
+  }
+  const albumCounts = new Map();
+  const genres = new Set();
+
+  artistTracks.forEach((track) => {
+    const albumName = formatAlbum(track);
+
+    albumCounts.set(albumName, (albumCounts.get(albumName) || 0) + 1);
+    if (track.genre) {
+      genres.add(track.genre);
+    }
+    if (Array.isArray(track.genres)) {
+      track.genres.filter(Boolean).forEach((genre) => genres.add(genre));
+    }
+  });
+
+  return {
+    ...emptyArtistInfo(artistName),
+    source: 'local',
+    genres: [...genres].slice(0, 3),
+    tags: [...genres].slice(0, 3),
+    albumCount: albumCounts.size,
+    trackCount: artistTracks.length,
+    albums: [...albumCounts].map(([title, trackCount]) => ({
+      title,
+      trackCount
+    })),
+    topTracks: artistTracks.slice(0, 5).map((track) => ({
+      id: track.id,
+      title: track.title,
+      album: formatAlbum(track),
+      duration: track.duration
+    })),
+    externalIds: {},
+    updatedAt: new Date().toISOString()
+  };
 }
 
 function normalizeArtistInfoPayload(payload, artistName) {
@@ -847,7 +959,7 @@ function normalizeArtistInfoPayload(payload, artistName) {
       : [];
 
   return {
-    artistName: payload.artist || artistName,
+    artistName: payload.name || payload.artist || artistName,
     bio: payload.bio || null,
     image: payload.image || null,
     source: payload.source || 'local',
@@ -858,7 +970,11 @@ function normalizeArtistInfoPayload(payload, artistName) {
     playcount: payload.playcount,
     albumCount: Number.isInteger(payload.albumCount) ? payload.albumCount : null,
     trackCount: Number.isInteger(payload.trackCount) ? payload.trackCount : null,
+    albums: Array.isArray(payload.albums) ? payload.albums : [],
     topTracks: Array.isArray(payload.topTracks) ? payload.topTracks : [],
+    externalIds: payload.externalIds && typeof payload.externalIds === 'object'
+      ? payload.externalIds
+      : {},
     loading: false,
     error: null,
     updatedAt: payload.updatedAt || new Date().toISOString()
@@ -909,7 +1025,7 @@ function renderHeroArtistInfo(info) {
     ? artistInfo.error
     : visibleTags.length > 0
       ? visibleTags.join(' · ')
-      : 'Data will be provided by MusicBrainz / Last.fm in a future phase.';
+      : '—';
   heroArtistTopTracks.replaceChildren();
 
   if (artistInfo.topTracks && artistInfo.topTracks.length > 0) {
@@ -931,6 +1047,12 @@ function renderHeroArtistInfo(info) {
 }
 
 async function loadArtistInfoForTrack(track) {
+  if (!track) {
+    activeArtistInfoRequest = null;
+    renderHeroArtistInfo(emptyArtistInfo());
+    return;
+  }
+
   const artistName = formatArtist(track);
 
   if (isUnknownArtistName(artistName)) {
@@ -940,7 +1062,7 @@ async function loadArtistInfoForTrack(track) {
   }
 
   const cacheKey = cacheKeyForArtist(artistName);
-  const cachedInfo = artistInfoCache[cacheKey];
+  const cachedInfo = artistInfoCache.get(cacheKey);
 
   if (isFreshArtistInfo(cachedInfo)) {
     renderHeroArtistInfo(cachedInfo);
@@ -974,10 +1096,7 @@ async function loadArtistInfoForTrack(track) {
       return;
     }
 
-    renderHeroArtistInfo({
-      ...emptyArtistInfo(artistName),
-      error: 'Artist info is unavailable.'
-    });
+    renderHeroArtistInfo(localArtistInfoFallback(artistName));
   }
 }
 
@@ -2347,7 +2466,7 @@ function renderArtists() {
 
 function renderArtistDetail(artistName) {
   const artistTracks = tracks.filter((track) => formatArtist(track) === artistName);
-  const cachedInfo = artistInfoCache[cacheKeyForArtist(artistName)];
+  const cachedInfo = artistInfoCache.get(cacheKeyForArtist(artistName));
   const header = document.createElement('div');
   const backButton = document.createElement('button');
   const copy = document.createElement('div');
@@ -2676,6 +2795,7 @@ async function loadTracks(searchValue = '') {
 
     const data = await response.json();
     allTracks = Array.isArray(data.tracks) ? data.tracks : [];
+    pruneMissingTrackReferences();
     applyTrackSearch(searchValue);
     refreshRecentlyPlayed();
     renderLibrary();
@@ -2740,8 +2860,10 @@ async function loadAutoScanStatus() {
       lastSeenAutoScanAt = data.lastScanAt;
 
       if (shouldRefreshLibrary) {
+        clearArtistInfoCache();
         await loadTracks(searchInput.value);
         await loadFavorites();
+        refreshActiveArtistInfo();
       }
     }
   } catch (err) {
@@ -2815,10 +2937,12 @@ async function runAutoScan(reason = 'manual') {
     const result = await requestLibraryScan();
     lastAutoScanAt = new Date().toISOString();
     saveAutoScanSettings();
-    statusMessage.textContent = `Scan completed: ${result.inserted} added, ${result.skipped} skipped`;
+    statusMessage.textContent = `Scan completed: ${result.inserted} added, ${result.skipped} skipped, ${result.removed || 0} removed`;
+    clearArtistInfoCache();
     await loadTracks(searchInput.value);
     await loadFavorites();
     await loadRecentlyPlayed();
+    refreshActiveArtistInfo();
     updateAutoScanStatus('Idle');
     return result;
   } catch (err) {

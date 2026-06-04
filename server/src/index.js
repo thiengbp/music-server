@@ -103,7 +103,7 @@ async function runAutoLibraryScan(libraryPath) {
     autoScanState.lastScanAt = new Date().toISOString();
     autoScanState.lastResult = result;
     console.log(
-      `Auto scan completed: scanned=${result.scanned}, inserted=${result.inserted}, skipped=${result.skipped}`
+      `Auto scan completed: scanned=${result.scanned}, inserted=${result.inserted}, skipped=${result.skipped}, removed=${result.removed}`
     );
     return result;
   } catch (err) {

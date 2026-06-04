@@ -1,5 +1,6 @@
 'use strict';
 
+const fsSync = require('fs');
 const fs = require('fs/promises');
 const path = require('path');
 const db = require('../config/database');
@@ -15,6 +16,15 @@ function dbRun(sql, params = []) {
         id: this.lastID,
         changes: this.changes
       });
+    });
+  });
+}
+
+function dbAll(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+      if (err) return reject(err);
+      resolve(rows);
     });
   });
 }
@@ -69,8 +79,69 @@ async function insertTrackIfMissing(filePath) {
   return result.changes === 1;
 }
 
+function isPathInsideRoot(filePath, libraryRoot) {
+  const relativePath = path.relative(libraryRoot, filePath);
+
+  return relativePath === '' || (
+    relativePath !== '..' &&
+    !relativePath.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relativePath)
+  );
+}
+
+async function deleteTrackIds(trackIds) {
+  if (trackIds.length === 0) {
+    return 0;
+  }
+
+  await dbRun('BEGIN IMMEDIATE TRANSACTION');
+
+  try {
+    let removed = 0;
+
+    for (let index = 0; index < trackIds.length; index += 500) {
+      const chunk = trackIds.slice(index, index + 500);
+      const placeholders = chunk.map(() => '?').join(', ');
+
+      await dbRun(`DELETE FROM favorites WHERE track_id IN (${placeholders})`, chunk);
+      await dbRun(`DELETE FROM play_history WHERE track_id IN (${placeholders})`, chunk);
+      const result = await dbRun(`DELETE FROM tracks WHERE id IN (${placeholders})`, chunk);
+      removed += result.changes;
+    }
+
+    await dbRun('COMMIT');
+    return removed;
+  } catch (err) {
+    await dbRun('ROLLBACK').catch(() => {});
+    throw err;
+  }
+}
+
+async function removeOrphanTracks(libraryRoot, discoveredPaths) {
+  const tracks = await dbAll('SELECT id, file_path FROM tracks');
+  const orphanTrackIds = tracks
+    .filter((track) => {
+      if (typeof track.file_path !== 'string' || !track.file_path.trim()) {
+        return true;
+      }
+
+      const trackPath = path.resolve(track.file_path);
+      const fileExists = fsSync.existsSync(trackPath);
+
+      if (!isPathInsideRoot(trackPath, libraryRoot)) {
+        return true;
+      }
+
+      return !fileExists || !discoveredPaths.has(trackPath);
+    })
+    .map((track) => track.id);
+
+  return deleteTrackIds(orphanTrackIds);
+}
+
 async function scanLibrary(libraryPath) {
-  const stats = await fs.stat(libraryPath);
+  const libraryRoot = path.resolve(libraryPath);
+  const stats = await fs.stat(libraryRoot);
 
   if (!stats.isDirectory()) {
     const err = new Error('Library path is not a directory');
@@ -78,7 +149,8 @@ async function scanLibrary(libraryPath) {
     throw err;
   }
 
-  const audioFiles = await collectAudioFiles(libraryPath);
+  const audioFiles = (await collectAudioFiles(libraryRoot)).map((filePath) => path.resolve(filePath));
+  const discoveredPaths = new Set(audioFiles);
   let inserted = 0;
 
   for (const filePath of audioFiles) {
@@ -89,10 +161,14 @@ async function scanLibrary(libraryPath) {
     }
   }
 
+  const removed = await removeOrphanTracks(libraryRoot, discoveredPaths);
+  console.log(`Library scan cleanup completed: removed=${removed}`);
+
   return {
     scanned: audioFiles.length,
     inserted,
-    skipped: audioFiles.length - inserted
+    skipped: audioFiles.length - inserted,
+    removed
   };
 }
 
