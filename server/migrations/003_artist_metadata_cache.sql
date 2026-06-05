@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS artist_metadata_cache (
   lastfm_url TEXT,
   listeners INTEGER,
   playcount INTEGER,
+  popular_tracks_json TEXT NOT NULL DEFAULT '[]',
   sources_json TEXT NOT NULL DEFAULT '[]',
-  mapping_version INTEGER NOT NULL DEFAULT 2,
+  mapping_version INTEGER NOT NULL DEFAULT 4,
   updated_at TEXT NOT NULL
 );

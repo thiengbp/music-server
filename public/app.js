@@ -9,8 +9,8 @@ const LEARNED_DURATIONS_STORAGE_KEY = 'music-server.learned-durations.v1';
 const AUTO_SCAN_ENABLED_STORAGE_KEY = 'musicServer.autoScan.enabled';
 const AUTO_SCAN_INTERVAL_STORAGE_KEY = 'musicServer.autoScan.intervalMinutes';
 const AUTO_SCAN_LAST_SCAN_STORAGE_KEY = 'musicServer.autoScan.lastScanAt';
-const ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v4';
-const LEGACY_ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v3';
+const ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v5';
+const LEGACY_ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v4';
 const ARTIST_INFO_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const COVER_URL_VERSION = 'v2';
 const RECENT_TRACK_LIMIT = 50;
@@ -57,6 +57,7 @@ const heroArtistListeners = document.getElementById('hero-artist-listeners');
 const heroArtistTags = document.getElementById('hero-artist-tags');
 const heroArtistTopTracks = document.getElementById('hero-artist-top-tracks');
 const heroArtistAvatar = document.getElementById('hero-artist-avatar');
+const heroArtistPhotoBackground = document.getElementById('hero-artist-photo-background');
 const settingsButton = document.getElementById('settings-button');
 const settingsOverlay = document.getElementById('settings-overlay');
 const settingsCloseButton = document.getElementById('settings-close-button');
@@ -102,6 +103,7 @@ let recentTrackIds = normalizeTrackIds(readStoredArray(RECENT_TRACKS_STORAGE_KEY
 let artistInfoCache = new Map(Object.entries(readStoredObject(ARTIST_INFO_CACHE_KEY)));
 localStorage.removeItem(LEGACY_ARTIST_INFO_CACHE_KEY);
 let activeArtistInfoRequest = null;
+let artistPhotoRequestId = 0;
 let pendingResumeTime = null;
 let hasRestoredPlayer = false;
 let isRestoringPlayer = false;
@@ -832,6 +834,8 @@ function emptyArtistInfo(artistName = 'No artist selected') {
     trackCount: null,
     albums: [],
     topTracks: [],
+    popularTracks: [],
+    popularTracksSource: 'local',
     externalIds: {},
     loading: false,
     error: null,
@@ -978,6 +982,8 @@ function normalizeArtistInfoPayload(payload, artistName) {
     trackCount: Number.isInteger(payload.trackCount) ? payload.trackCount : null,
     albums: Array.isArray(payload.albums) ? payload.albums : [],
     topTracks: Array.isArray(payload.topTracks) ? payload.topTracks : [],
+    popularTracks: Array.isArray(payload.popularTracks) ? payload.popularTracks : [],
+    popularTracksSource: payload.popularTracksSource || 'local',
     externalIds: payload.externalIds && typeof payload.externalIds === 'object'
       ? payload.externalIds
       : {},
@@ -1015,6 +1021,27 @@ function renderSourceBadges(info) {
   );
 }
 
+function normalizeArtistDescription(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const description = value
+    .replace(/\band works at\b/gi, ' • ')
+    .replace(/\bVietnamidol\b/gi, 'Vietnam Idol')
+    .replace(/\s*•\s*/g, ' • ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return description || null;
+}
+
+function formatCompactNumber(value) {
+  return value !== null && value !== undefined && Number.isFinite(Number(value))
+    ? Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+    : null;
+}
+
 function renderHeroArtistInfo(info) {
   const artistInfo = info || emptyArtistInfo();
   const visibleTags = artistInfo.tags && artistInfo.tags.length > 0
@@ -1023,19 +1050,55 @@ function renderHeroArtistInfo(info) {
   const metadataItems = [];
   const hasMusicBrainzSource = typeof artistInfo.source === 'string'
     && artistInfo.source.split('+').includes('musicbrainz');
-  const metadataDescription = artistInfo.bio
-    || artistInfo.disambiguation
+  const metadataDescription = normalizeArtistDescription(artistInfo.bio)
+    || normalizeArtistDescription(artistInfo.disambiguation)
     || (artistInfo.area ? `Area: ${artistInfo.area}` : null)
     || (hasMusicBrainzSource && artistInfo.artistType ? artistInfo.artistType : null);
+  const listenerCount = formatCompactNumber(artistInfo.listeners);
+  const playCount = formatCompactNumber(artistInfo.playcount);
+  const popularTracks = artistInfo.popularTracks?.length > 0
+    ? artistInfo.popularTracks
+    : artistInfo.topTracks;
 
   if (artistInfo.area) {
     metadataItems.push(`Area · ${artistInfo.area}`);
   }
 
   metadataItems.push(...visibleTags);
+  if (listenerCount) {
+    metadataItems.push(`Listeners · ${listenerCount}`);
+  }
+  if (playCount) {
+    metadataItems.push(`Playcount · ${playCount}`);
+  }
 
   heroArtistInfoTitle.textContent = artistInfo.artistName;
+  const photoRequestId = ++artistPhotoRequestId;
+
+  heroArtistAvatar.hidden = false;
   heroArtistAvatar.textContent = artistInitials(artistInfo.artistName);
+  heroArtistPhotoBackground.hidden = true;
+  heroArtistPhotoBackground.removeAttribute('src');
+
+  if (artistInfo.image) {
+    heroArtistPhotoBackground.onload = () => {
+      if (photoRequestId !== artistPhotoRequestId) {
+        return;
+      }
+
+      heroArtistPhotoBackground.hidden = false;
+      heroArtistAvatar.hidden = true;
+    };
+    heroArtistPhotoBackground.onerror = () => {
+      if (photoRequestId !== artistPhotoRequestId) {
+        return;
+      }
+
+      heroArtistPhotoBackground.hidden = true;
+      heroArtistAvatar.hidden = false;
+    };
+    heroArtistPhotoBackground.src = artistInfo.image;
+  }
   heroArtistInfoBio.textContent = artistInfo.loading
     ? 'Loading artist info...'
     : metadataDescription || 'Additional artist information is unavailable.';
@@ -1045,7 +1108,7 @@ function renderHeroArtistInfo(info) {
   heroArtistAlbumCount.textContent = Number.isInteger(artistInfo.albumCount)
     ? String(artistInfo.albumCount)
     : '—';
-  heroArtistListeners.textContent = artistInfo.country || '—';
+  heroArtistListeners.textContent = artistInfo.country || 'N/A';
   heroArtistTags.textContent = artistInfo.error
     ? artistInfo.error
     : metadataItems.length > 0
@@ -1053,13 +1116,15 @@ function renderHeroArtistInfo(info) {
       : '—';
   heroArtistTopTracks.replaceChildren();
 
-  if (artistInfo.topTracks && artistInfo.topTracks.length > 0) {
+  if (popularTracks && popularTracks.length > 0) {
     const label = document.createElement('span');
 
     label.className = 'artist-top-tracks-title';
-    label.textContent = 'Top Tracks';
+    label.textContent = artistInfo.popularTracksSource === 'lastfm'
+      ? 'Popular Tracks'
+      : 'Top Tracks';
     heroArtistTopTracks.append(label);
-    artistInfo.topTracks.slice(0, 3).forEach((track) => {
+    popularTracks.slice(0, 3).forEach((track) => {
       const item = document.createElement('span');
 
       item.className = 'artist-top-track';

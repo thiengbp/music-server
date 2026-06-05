@@ -148,6 +148,13 @@ async function getArtistInfo(req, res) {
     ).slice(0, 6);
     const onlineSources = onlineMetadata?.sources || [];
     const source = ['local', ...onlineSources].join('+');
+    const localTopTracks = topTracks.map((track) => ({
+      id: track.id,
+      title: track.title.normalize('NFC'),
+      album: albumTitle(track.album),
+      duration: track.duration,
+      cover: `/tracks/${track.id}/cover`
+    }));
     const artistInfo = {
       name: resolvedArtistName,
       artist: resolvedArtistName,
@@ -167,13 +174,11 @@ async function getArtistInfo(req, res) {
         trackCount: album.trackCount,
         cover: `/tracks/${album.coverTrackId}/cover`
       })),
-      topTracks: topTracks.map((track) => ({
-        id: track.id,
-        title: track.title.normalize('NFC'),
-        album: albumTitle(track.album),
-        duration: track.duration,
-        cover: `/tracks/${track.id}/cover`
-      })),
+      topTracks: localTopTracks,
+      popularTracks: onlineMetadata?.popularTracks?.length > 0
+        ? onlineMetadata.popularTracks
+        : localTopTracks,
+      popularTracksSource: onlineMetadata?.popularTracks?.length > 0 ? 'lastfm' : 'local',
       externalIds: {
         musicbrainz: onlineMetadata?.musicbrainzId || null,
         lastfm: onlineMetadata?.lastfmUrl || null
@@ -202,6 +207,8 @@ async function getArtistInfo(req, res) {
       trackCount: 0,
       albums: [],
       topTracks: [],
+      popularTracks: [],
+      popularTracksSource: 'local',
       externalIds: {},
       updatedAt: new Date().toISOString(),
       cached: false

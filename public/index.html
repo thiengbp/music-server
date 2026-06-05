@@ -267,6 +267,27 @@
         overflow: hidden;
       }
 
+      .artist-info-content {
+        position: relative;
+        z-index: 2;
+        min-width: 0;
+      }
+
+      .artist-photo-background {
+        position: absolute;
+        z-index: 0;
+        top: 50%;
+        right: -24px;
+        width: clamp(180px, 22vw, 250px);
+        height: clamp(180px, 22vw, 250px);
+        border-radius: 50%;
+        object-fit: cover;
+        opacity: 0.26;
+        filter: saturate(0.9) contrast(1.05);
+        pointer-events: none;
+        transform: translateY(-50%);
+      }
+
       .artist-info-label {
         margin: 0 0 4px;
         color: var(--accent-strong);
@@ -438,6 +459,8 @@
         margin: 0;
         color: var(--muted);
         font-size: 10px;
+        background-position: center;
+        background-size: cover;
       }
 
       .library-stats {
@@ -1834,6 +1857,13 @@
           border-left: 0;
         }
 
+        .artist-photo-background {
+          right: -48px;
+          width: 180px;
+          height: 180px;
+          opacity: 0.1;
+        }
+
         .artist-avatar-placeholder {
           display: none;
         }
@@ -2119,7 +2149,8 @@
               </div>
             </div>
             <aside class="artist-info" aria-label="Artist info">
-              <div>
+              <img id="hero-artist-photo-background" class="artist-photo-background" alt="" hidden>
+              <div class="artist-info-content">
                 <p class="artist-info-label">Artist Info</p>
                 <span id="hero-artist-info-title" class="artist-info-title">No artist selected</span>
                 <p id="hero-artist-info-bio" class="artist-info-copy">Artist biography and stats will appear here.</p>

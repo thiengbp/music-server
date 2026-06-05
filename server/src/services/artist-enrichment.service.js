@@ -6,7 +6,10 @@ const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 6000;
 const MUSICBRAINZ_MIN_INTERVAL_MS = 1100;
 const USER_AGENT = 'music-server/2.4 (self-hosted music library)';
-const CACHE_MAPPING_VERSION = 2;
+const CACHE_MAPPING_VERSION = 4;
+const LASTFM_PLACEHOLDER_IMAGE_IDS = new Set([
+  '2a96cbd8b46e442fc41c2b86b821562f'
+]);
 
 let cacheTableReady = null;
 let lastMusicBrainzRequestAt = 0;
@@ -56,8 +59,9 @@ function ensureCacheTable() {
         lastfm_url TEXT,
         listeners INTEGER,
         playcount INTEGER,
+        popular_tracks_json TEXT NOT NULL DEFAULT '[]',
         sources_json TEXT NOT NULL DEFAULT '[]',
-        mapping_version INTEGER NOT NULL DEFAULT 2,
+        mapping_version INTEGER NOT NULL DEFAULT 4,
         updated_at TEXT NOT NULL
       )
     `).then(async () => {
@@ -78,6 +82,10 @@ function ensureCacheTable() {
 
       if (!columnNames.has('mapping_version')) {
         await dbRun('ALTER TABLE artist_metadata_cache ADD COLUMN mapping_version INTEGER NOT NULL DEFAULT 1');
+      }
+
+      if (!columnNames.has('popular_tracks_json')) {
+        await dbRun("ALTER TABLE artist_metadata_cache ADD COLUMN popular_tracks_json TEXT NOT NULL DEFAULT '[]'");
       }
     }).catch((err) => {
       cacheTableReady = null;
@@ -119,6 +127,7 @@ function mapCacheRow(row) {
     lastfmUrl: row.lastfm_url,
     listeners: row.listeners,
     playcount: row.playcount,
+    popularTracks: parseJsonArray(row.popular_tracks_json),
     sources: parseJsonArray(row.sources_json),
     mappingVersion: row.mapping_version,
     updatedAt: row.updated_at,
@@ -132,20 +141,7 @@ async function getCachedArtist(artistName) {
     'SELECT * FROM artist_metadata_cache WHERE normalized_key = ?',
     [normalizedArtistKey(artistName)]
   );
-  const cached = mapCacheRow(row);
-
-  if (!cached) {
-    return null;
-  }
-
-  const updatedAt = Date.parse(cached.updatedAt);
-  const isFresh = Number.isFinite(updatedAt) && Date.now() - updatedAt < CACHE_TTL_MS;
-  const needsLastFmRefresh = Boolean(process.env.LASTFM_API_KEY)
-    && !cached.sources.includes('lastfm');
-  const needsMappingRefresh = cached.sources.includes('musicbrainz')
-    && cached.mappingVersion !== CACHE_MAPPING_VERSION;
-
-  return isFresh && !needsLastFmRefresh && !needsMappingRefresh ? cached : null;
+  return mapCacheRow(row);
 }
 
 async function saveCachedArtist(artistName, metadata) {
@@ -156,8 +152,9 @@ async function saveCachedArtist(artistName, metadata) {
     INSERT INTO artist_metadata_cache (
       normalized_key, artist_name, bio, country, area, tags_json, image,
       musicbrainz_id, musicbrainz_disambiguation, musicbrainz_type,
-      lastfm_url, listeners, playcount, sources_json, mapping_version, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      lastfm_url, listeners, playcount, popular_tracks_json,
+      sources_json, mapping_version, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(normalized_key) DO UPDATE SET
       artist_name = excluded.artist_name,
       bio = excluded.bio,
@@ -171,6 +168,7 @@ async function saveCachedArtist(artistName, metadata) {
       lastfm_url = excluded.lastfm_url,
       listeners = excluded.listeners,
       playcount = excluded.playcount,
+      popular_tracks_json = excluded.popular_tracks_json,
       sources_json = excluded.sources_json,
       mapping_version = excluded.mapping_version,
       updated_at = excluded.updated_at
@@ -188,6 +186,7 @@ async function saveCachedArtist(artistName, metadata) {
     metadata.lastfmUrl,
     metadata.listeners,
     metadata.playcount,
+    JSON.stringify(metadata.popularTracks || []),
     JSON.stringify(metadata.sources || []),
     CACHE_MAPPING_VERSION,
     updatedAt
@@ -277,6 +276,38 @@ function stripHtml(value) {
     : null;
 }
 
+function isLastFmPlaceholderImage(url) {
+  if (typeof url !== 'string' || !url.trim()) {
+    return true;
+  }
+
+  const normalizedUrl = url.trim().toLowerCase();
+
+  return LASTFM_PLACEHOLDER_IMAGE_IDS.has(normalizedUrl.match(/\/([^/.]+)\.png(?:$|\?)/)?.[1])
+    || normalizedUrl.includes('/2a96cbd8b46e442fc41c2b86b821562f.')
+    || normalizedUrl.includes('default_album')
+    || normalizedUrl.includes('noimage')
+    || normalizedUrl.includes('placeholder');
+}
+
+function selectLastFmArtistImage(images) {
+  if (!Array.isArray(images)) {
+    return null;
+  }
+
+  const sizePriority = ['extralarge', 'large', 'medium', 'small'];
+
+  for (const size of sizePriority) {
+    const url = images.find((item) => item.size === size && item['#text'])?.['#text'];
+
+    if (url && !isLastFmPlaceholderImage(url)) {
+      return url;
+    }
+  }
+
+  return null;
+}
+
 async function fetchLastFmArtist(artistName) {
   const apiKey = process.env.LASTFM_API_KEY;
 
@@ -284,24 +315,45 @@ async function fetchLastFmArtist(artistName) {
     return null;
   }
 
-  const params = new URLSearchParams({
+  const infoParams = new URLSearchParams({
     method: 'artist.getInfo',
     artist: artistName,
     api_key: apiKey,
     format: 'json',
     autocorrect: '1'
   });
-  const payload = await fetchJson(`https://ws.audioscrobbler.com/2.0/?${params}`);
+  const topTracksParams = new URLSearchParams({
+    method: 'artist.getTopTracks',
+    artist: artistName,
+    api_key: apiKey,
+    format: 'json',
+    autocorrect: '1',
+    limit: '5'
+  });
+  const payload = await fetchJson(`https://ws.audioscrobbler.com/2.0/?${infoParams}`);
+  let topTracksPayload = null;
+
+  try {
+    topTracksPayload = await fetchJson(`https://ws.audioscrobbler.com/2.0/?${topTracksParams}`);
+  } catch (err) {
+    console.warn(`Last.fm popular tracks unavailable for "${artistName}": ${err.message}`);
+  }
   const artist = payload.artist;
 
   if (!artist) {
     return null;
   }
 
-  const images = Array.isArray(artist.image) ? artist.image : [];
-  const image = [...images].reverse().find((item) => item['#text'])?.['#text'] || null;
+  const image = selectLastFmArtistImage(artist.image);
   const tags = Array.isArray(artist.tags?.tag)
     ? artist.tags.tag.map((tag) => tag.name).filter(Boolean)
+    : [];
+  const popularTracks = Array.isArray(topTracksPayload?.toptracks?.track)
+    ? topTracksPayload.toptracks.track.map((track) => ({
+      title: track.name,
+      url: track.url || null,
+      playcount: Number.isFinite(Number(track.playcount)) ? Number(track.playcount) : null
+    })).filter((track) => track.title)
     : [];
 
   return {
@@ -314,7 +366,8 @@ async function fetchLastFmArtist(artistName) {
       : null,
     playcount: Number.isFinite(Number(artist.stats?.playcount))
       ? Number(artist.stats.playcount)
-      : null
+      : null,
+    popularTracks
   };
 }
 
@@ -336,56 +389,75 @@ function mergeTags(...tagLists) {
 
 async function enrichArtist(artistName) {
   const cached = await getCachedArtist(artistName);
+  const updatedAt = Date.parse(cached?.updatedAt || '');
+  const isFresh = Number.isFinite(updatedAt) && Date.now() - updatedAt < CACHE_TTL_MS;
+  const hasMusicBrainz = cached?.sources.includes('musicbrainz') || false;
+  const hasLastFm = cached?.sources.includes('lastfm') || false;
+  const shouldFetchLastFm = Boolean(process.env.LASTFM_API_KEY);
+  const needsMappingRefresh = hasMusicBrainz
+    && cached.mappingVersion !== CACHE_MAPPING_VERSION;
 
-  if (cached) {
+  if (
+    cached
+    && isFresh
+    && hasMusicBrainz
+    && (!shouldFetchLastFm || hasLastFm)
+    && !needsMappingRefresh
+  ) {
     return cached;
   }
 
   const metadata = {
-    bio: null,
-    country: null,
-    area: null,
-    tags: [],
-    image: null,
-    musicbrainzId: null,
-    musicbrainzDisambiguation: null,
-    musicbrainzType: null,
-    lastfmUrl: null,
-    listeners: null,
-    playcount: null,
-    sources: []
+    bio: cached?.bio || null,
+    country: cached?.country || null,
+    area: cached?.area || null,
+    tags: cached?.tags || [],
+    image: cached?.image || null,
+    musicbrainzId: cached?.musicbrainzId || null,
+    musicbrainzDisambiguation: cached?.musicbrainzDisambiguation || null,
+    musicbrainzType: cached?.musicbrainzType || null,
+    lastfmUrl: cached?.lastfmUrl || null,
+    listeners: cached?.listeners ?? null,
+    playcount: cached?.playcount ?? null,
+    popularTracks: cached?.popularTracks || [],
+    sources: cached?.sources ? [...cached.sources] : []
   };
 
-  try {
-    const musicBrainz = await fetchMusicBrainzArtist(artistName);
+  if (!isFresh || !hasMusicBrainz || needsMappingRefresh) {
+    try {
+      const musicBrainz = await fetchMusicBrainzArtist(artistName);
 
-    if (musicBrainz) {
-      metadata.country = musicBrainz.country;
-      metadata.area = musicBrainz.area;
-      metadata.tags = mergeTags(metadata.tags, musicBrainz.tags);
-      metadata.musicbrainzId = musicBrainz.musicbrainzId;
-      metadata.musicbrainzDisambiguation = musicBrainz.disambiguation;
-      metadata.musicbrainzType = musicBrainz.type;
-      metadata.sources.push('musicbrainz');
+      if (musicBrainz) {
+        metadata.country = musicBrainz.country;
+        metadata.area = musicBrainz.area;
+        metadata.tags = mergeTags(metadata.tags, musicBrainz.tags);
+        metadata.musicbrainzId = musicBrainz.musicbrainzId;
+        metadata.musicbrainzDisambiguation = musicBrainz.disambiguation;
+        metadata.musicbrainzType = musicBrainz.type;
+        metadata.sources = mergeTags(metadata.sources, ['musicbrainz']);
+      }
+    } catch (err) {
+      console.warn(`MusicBrainz enrichment failed for "${artistName}": ${err.message}`);
     }
-  } catch (err) {
-    console.warn(`MusicBrainz enrichment failed for "${artistName}": ${err.message}`);
   }
 
-  try {
-    const lastFm = await fetchLastFmArtist(artistName);
+  if (shouldFetchLastFm && (!isFresh || !hasLastFm)) {
+    try {
+      const lastFm = await fetchLastFmArtist(artistName);
 
-    if (lastFm) {
-      metadata.bio = lastFm.bio;
-      metadata.tags = mergeTags(metadata.tags, lastFm.tags);
-      metadata.image = lastFm.image;
-      metadata.lastfmUrl = lastFm.lastfmUrl;
-      metadata.listeners = lastFm.listeners;
-      metadata.playcount = lastFm.playcount;
-      metadata.sources.push('lastfm');
+      if (lastFm) {
+        metadata.bio = lastFm.bio;
+        metadata.tags = mergeTags(metadata.tags, lastFm.tags);
+        metadata.image = lastFm.image;
+        metadata.lastfmUrl = lastFm.lastfmUrl;
+        metadata.listeners = lastFm.listeners;
+        metadata.playcount = lastFm.playcount;
+        metadata.popularTracks = lastFm.popularTracks;
+        metadata.sources = mergeTags(metadata.sources, ['lastfm']);
+      }
+    } catch (err) {
+      console.warn(`Last.fm enrichment failed for "${artistName}": ${err.message}`);
     }
-  } catch (err) {
-    console.warn(`Last.fm enrichment failed for "${artistName}": ${err.message}`);
   }
 
   return saveCachedArtist(artistName, metadata);
