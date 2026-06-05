@@ -105,6 +105,15 @@ async function deleteTrackIds(trackIds) {
 
       await dbRun(`DELETE FROM favorites WHERE track_id IN (${placeholders})`, chunk);
       await dbRun(`DELETE FROM play_history WHERE track_id IN (${placeholders})`, chunk);
+      await dbRun(`DELETE FROM playlist_tracks WHERE track_id IN (${placeholders})`, chunk).catch((err) => {
+        if (!err.message.includes('no such table')) throw err;
+      });
+      await dbRun(`DELETE FROM queue_items WHERE track_id IN (${placeholders})`, chunk).catch((err) => {
+        if (!err.message.includes('no such table')) throw err;
+      });
+      await dbRun(`UPDATE queue_state SET current_track_id = NULL WHERE current_track_id IN (${placeholders})`, chunk).catch((err) => {
+        if (!err.message.includes('no such table')) throw err;
+      });
       const result = await dbRun(`DELETE FROM tracks WHERE id IN (${placeholders})`, chunk);
       removed += result.changes;
     }

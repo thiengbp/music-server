@@ -8,6 +8,8 @@ const db = require('./config/database');
 const artistRoutes = require('./routes/artists.routes');
 const coverRoutes = require('./routes/cover.routes');
 const libraryRoutes = require('./routes/library.routes');
+const playlistsRoutes = require('./routes/playlists.routes');
+const queueRoutes = require('./routes/queue.routes');
 const recentlyRoutes = require('./routes/recently.routes');
 const streamRoutes = require('./routes/stream.routes');
 const tracksRoutes = require('./routes/tracks.routes');
@@ -50,6 +52,8 @@ app.use('/tracks', tracksRoutes);
 app.use('/tracks', coverRoutes);
 app.use('/artists', artistRoutes);
 app.use('/library', libraryRoutes);
+app.use('/playlists', playlistsRoutes);
+app.use('/queue', queueRoutes);
 app.use('/recently-played', recentlyRoutes);
 app.use('/stream', streamRoutes);
 

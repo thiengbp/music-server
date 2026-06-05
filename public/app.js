@@ -90,6 +90,9 @@ let lastAutoScanAt = null;
 let autoScanEnabled = true;
 let autoScanIntervalMinutes = DEFAULT_AUTO_SCAN_INTERVAL_MINUTES;
 let autoScanStatus = 'Idle';
+let queueSyncTimer = null;
+let isQueueSyncing = false;
+let hasLoadedPersistentLibraryState = false;
 let savedPlayerState = normalizePlayerState(readStoredObject(PLAYER_STATE_STORAGE_KEY));
 let queueTrackIds = savedPlayerState.queueTrackIds.length > 0
   ? [...savedPlayerState.queueTrackIds]
@@ -319,13 +322,18 @@ function normalizePlaylist(playlist, options = {}) {
   const storedTrackIds = Array.isArray(playlist.trackIds) ? playlist.trackIds : [];
   const storedTracks = Array.isArray(playlist.tracks) ? playlist.tracks : [];
   const normalizedPlaylist = {
-    id: typeof playlist.id === 'string'
-      ? playlist.id
+    id: playlist.id !== undefined && playlist.id !== null
+      ? String(playlist.id)
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     name: typeof playlist.name === 'string' && playlist.name.trim()
       ? playlist.name.trim()
       : 'Untitled playlist',
-    trackIds: normalizeTrackIds([...storedTrackIds, ...storedTracks])
+    trackIds: normalizeTrackIds([...storedTrackIds, ...storedTracks]),
+    trackCount: Number.isInteger(playlist.trackCount) ? playlist.trackCount : undefined,
+    cover_track_id: Number.isInteger(playlist.cover_track_id) ? playlist.cover_track_id : null,
+    cover: typeof playlist.cover === 'string' ? playlist.cover : null,
+    created_at: playlist.created_at || null,
+    updated_at: playlist.updated_at || null
   };
 
   if (options.preserveLegacyTracks) {
@@ -447,7 +455,9 @@ function normalizePlayerState(value) {
       : [],
     playbackContext: normalizePlaybackContext(value.playbackContext),
     activeLibraryTab: libraryTabs.has(value.activeLibraryTab) ? value.activeLibraryTab : 'songs',
-    selectedPlaylistId: typeof value.selectedPlaylistId === 'string' ? value.selectedPlaylistId : null,
+    selectedPlaylistId: value.selectedPlaylistId !== undefined && value.selectedPlaylistId !== null
+      ? String(value.selectedPlaylistId)
+      : null,
     paused: value.paused !== false
   };
 }
@@ -474,6 +484,7 @@ function normalizePlaybackContext(value) {
 
 function saveQueue() {
   writeStoredArray(QUEUE_STORAGE_KEY, queueTrackIds);
+  scheduleQueueSync();
   savePlayerState();
 }
 
@@ -487,6 +498,168 @@ function savePlaylists() {
 
   playlists = normalizePlaylists(playlists);
   writeStoredArray(PLAYLISTS_STORAGE_KEY, playlists);
+}
+
+async function requestJson(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(options.headers || {})
+    }
+  });
+  const data = response.status === 204 ? null : await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const message = data && data.error ? data.error : `Request failed: ${response.status}`;
+    const err = new Error(message);
+    err.status = response.status;
+    err.data = data;
+    throw err;
+  }
+
+  return data;
+}
+
+function normalizeApiPlaylist(playlist) {
+  const trackIds = Array.isArray(playlist.tracks)
+    ? playlist.tracks.map((track) => trackIdFromValue(track))
+    : playlist.trackIds || [];
+
+  return normalizePlaylist({
+    ...playlist,
+    id: playlist.id,
+    trackIds,
+    tracks: Array.isArray(playlist.tracks) ? playlist.tracks : undefined,
+    trackCount: Number.isInteger(playlist.trackCount) ? playlist.trackCount : trackIds.length
+  }, {
+    preserveLegacyTracks: true
+  });
+}
+
+function queueSyncPayload() {
+  return {
+    trackIds: queueTrackIds,
+    currentTrackId: activeTrackId,
+    repeatMode,
+    shuffleEnabled: isShuffleEnabled
+  };
+}
+
+async function persistQueueToApi() {
+  if (isQueueSyncing) {
+    return;
+  }
+
+  isQueueSyncing = true;
+
+  try {
+    await requestJson('/queue', {
+      method: 'PUT',
+      body: JSON.stringify(queueSyncPayload())
+    });
+  } catch (err) {
+    showToast(`Queue sync failed: ${err.message}`);
+  } finally {
+    isQueueSyncing = false;
+  }
+}
+
+function scheduleQueueSync() {
+  if (!hasLoadedPersistentLibraryState) {
+    return;
+  }
+
+  clearTimeout(queueSyncTimer);
+  queueSyncTimer = setTimeout(() => {
+    persistQueueToApi();
+  }, 250);
+}
+
+async function loadQueueFromApi() {
+  try {
+    const data = await requestJson('/queue');
+    const queue = data.queue || {};
+    const items = Array.isArray(queue.items) ? queue.items : [];
+
+    queueTrackIds = normalizeTrackIds(items.map((item) => item.track));
+    if (['off', 'all', 'one'].includes(queue.repeatMode)) {
+      repeatMode = queue.repeatMode;
+    }
+    if (typeof queue.shuffleEnabled === 'boolean') {
+      isShuffleEnabled = queue.shuffleEnabled;
+    }
+    writeStoredArray(QUEUE_STORAGE_KEY, queueTrackIds);
+    savePlayerState();
+  } catch (err) {
+    showToast(`Queue restore failed: ${err.message}`);
+  }
+}
+
+async function migrateLocalPlaylistsToApi(localPlaylists) {
+  for (const localPlaylist of localPlaylists) {
+    const trackIds = playlistTrackIds(localPlaylist);
+    const created = await requestJson('/playlists', {
+      method: 'POST',
+      body: JSON.stringify({ name: localPlaylist.name })
+    });
+    const playlistId = created.playlist && created.playlist.id;
+
+    if (!playlistId) {
+      continue;
+    }
+
+    for (const trackId of trackIds) {
+      await requestJson(`/playlists/${playlistId}/tracks`, {
+        method: 'POST',
+        body: JSON.stringify({ trackId })
+      }).catch(() => {});
+    }
+  }
+}
+
+async function loadPlaylistsFromApi() {
+  const localPlaylists = normalizePlaylists(readStoredArray(PLAYLISTS_STORAGE_KEY));
+
+  try {
+    let data = await requestJson('/playlists');
+    let apiPlaylists = Array.isArray(data.playlists) ? data.playlists.map(normalizeApiPlaylist) : [];
+
+    if (apiPlaylists.length === 0 && localPlaylists.length > 0) {
+      await migrateLocalPlaylistsToApi(localPlaylists);
+      data = await requestJson('/playlists');
+      apiPlaylists = Array.isArray(data.playlists) ? data.playlists.map(normalizeApiPlaylist) : [];
+    }
+
+    playlists = apiPlaylists;
+    writeStoredArray(PLAYLISTS_STORAGE_KEY, playlists);
+
+    if (selectedPlaylistId && !playlists.some((playlist) => playlist.id === selectedPlaylistId)) {
+      selectedPlaylistId = null;
+    }
+  } catch (err) {
+    showToast(`Playlist restore failed: ${err.message}`);
+    playlists = localPlaylists;
+  }
+}
+
+async function loadPlaylistDetailFromApi(playlistId) {
+  const data = await requestJson(`/playlists/${encodeURIComponent(playlistId)}`);
+  const playlist = normalizeApiPlaylist(data.playlist || {});
+
+  playlists = [
+    playlist,
+    ...playlists.filter((currentPlaylist) => currentPlaylist.id !== playlist.id)
+  ];
+  writeStoredArray(PLAYLISTS_STORAGE_KEY, playlists);
+
+  return playlist;
+}
+
+async function loadPersistentLibraryState() {
+  await loadPlaylistsFromApi();
+  await loadQueueFromApi();
+  hasLoadedPersistentLibraryState = true;
 }
 
 function saveRecentlyPlayed() {
@@ -1530,7 +1703,7 @@ function updateTrackInMemory(updatedTrack) {
   ));
 }
 
-function addToQueue(track) {
+async function addToQueue(track) {
   if (queueTrackIds[queueTrackIds.length - 1] === track.id) {
     showToast(`Already at end of queue: ${track.title}`);
     renderQueue();
@@ -1543,7 +1716,7 @@ function addToQueue(track) {
   showToast(`Added to queue: ${track.title}`);
 }
 
-function playNext(track) {
+async function playNext(track) {
   const insertIndex = queueActiveIndex >= 0 ? queueActiveIndex + 1 : 0;
   queueTrackIds.splice(insertIndex, 0, track.id);
   saveQueue();
@@ -1551,7 +1724,7 @@ function playNext(track) {
   showToast(`Will play next: ${track.title}`);
 }
 
-function removeFromQueue(index) {
+async function removeFromQueue(index) {
   queueTrackIds.splice(index, 1);
 
   if (queueActiveIndex === index) {
@@ -1565,32 +1738,43 @@ function removeFromQueue(index) {
   updateQueueControls();
 }
 
-function clearQueue() {
+async function clearQueue() {
   queueTrackIds = [];
   queueActiveIndex = -1;
-  saveQueue();
+  writeStoredArray(QUEUE_STORAGE_KEY, queueTrackIds);
+  savePlayerState();
   renderQueue();
   updateQueueControls();
+
+  try {
+    await requestJson('/queue', { method: 'DELETE' });
+  } catch (err) {
+    showToast(`Clear queue sync failed: ${err.message}`);
+  }
 }
 
-function createPlaylist(name) {
+async function createPlaylist(name) {
   const trimmedName = name.trim();
 
   if (!trimmedName) {
     return;
   }
 
-  playlists.push({
-    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    name: trimmedName,
-    trackIds: []
-  });
-  savePlaylists();
-  renderLibrary();
-  showToast(`Created playlist: ${trimmedName}`);
+  try {
+    const data = await requestJson('/playlists', {
+      method: 'POST',
+      body: JSON.stringify({ name: trimmedName })
+    });
+    playlists = [normalizeApiPlaylist(data.playlist), ...playlists];
+    savePlaylists();
+    renderLibrary();
+    showToast(`Created playlist: ${trimmedName}`);
+  } catch (err) {
+    showToast(`Create playlist failed: ${err.message}`);
+  }
 }
 
-function addTrackToPlaylist(track, playlistId) {
+async function addTrackToPlaylist(track, playlistId) {
   const hydratedTrack = hydrateTrack(track);
   const targetPlaylist = playlists.find((playlist) => playlist.id === playlistId);
   const targetTrackIds = targetPlaylist ? playlistTrackIds(targetPlaylist) : [];
@@ -1606,44 +1790,45 @@ function addTrackToPlaylist(track, playlistId) {
     return;
   }
 
-  playlists = playlists.map((playlist) => {
-    const trackIds = playlistTrackIds(playlist);
+  try {
+    const data = await requestJson(`/playlists/${encodeURIComponent(playlistId)}/tracks`, {
+      method: 'POST',
+      body: JSON.stringify({ trackId: hydratedTrack.id })
+    });
+    const updatedPlaylist = normalizeApiPlaylist(data.playlist);
 
-    if (playlist.id !== playlistId) {
-      return playlist;
-    }
-
-    return {
-      ...playlist,
-      trackIds: [...trackIds, hydratedTrack.id]
-    };
-  });
-  savePlaylists();
-  renderLibrary();
-  showToast(`Added to playlist: ${targetPlaylist.name}`);
+    playlists = playlists.map((playlist) => (
+      playlist.id === playlistId ? updatedPlaylist : playlist
+    ));
+    savePlaylists();
+    renderLibrary();
+    showToast(`Added to playlist: ${targetPlaylist.name}`);
+  } catch (err) {
+    showToast(`Add to playlist failed: ${err.message}`);
+  }
 }
 
-function removeTrackFromPlaylist(playlistId, trackId) {
+async function removeTrackFromPlaylist(playlistId, trackId) {
   const playlist = playlists.find((currentPlaylist) => currentPlaylist.id === playlistId);
   const track = findTrackById(trackId);
 
-  playlists = playlists.map((playlist) => {
-    const trackIds = playlistTrackIds(playlist);
+  try {
+    const data = await requestJson(`/playlists/${encodeURIComponent(playlistId)}/tracks/${trackId}`, {
+      method: 'DELETE'
+    });
+    const updatedPlaylist = normalizeApiPlaylist(data.playlist);
 
-    if (playlist.id !== playlistId) {
-      return playlist;
-    }
-
-    return {
-      ...playlist,
-      trackIds: trackIds.filter((currentTrackId) => currentTrackId !== trackId)
-    };
-  });
-  savePlaylists();
-  renderLibrary();
-  showToast(playlist && track
-    ? `Removed from playlist: ${playlist.name}`
-    : 'Removed from playlist');
+    playlists = playlists.map((playlist) => (
+      playlist.id === playlistId ? updatedPlaylist : playlist
+    ));
+    savePlaylists();
+    renderLibrary();
+    showToast(playlist && track
+      ? `Removed from playlist: ${playlist.name}`
+      : 'Removed from playlist');
+  } catch (err) {
+    showToast(`Remove from playlist failed: ${err.message}`);
+  }
 }
 
 async function recordTrackPlay(trackId) {
@@ -1871,6 +2056,7 @@ function toggleShuffle() {
   isShuffleEnabled = !isShuffleEnabled;
   updateQueueControls();
   renderQueue();
+  scheduleQueueSync();
   savePlayerState();
 }
 
@@ -1884,6 +2070,7 @@ function cycleRepeatMode() {
   }
 
   updateQueueControls();
+  scheduleQueueSync();
   savePlayerState();
 }
 
@@ -2763,20 +2950,40 @@ function renderPlaylistCard(playlist) {
   title.className = 'group-title';
   meta.className = 'group-meta';
   title.textContent = playlist.name;
-  const trackCount = playlistTrackIds(playlist).length;
+  const trackCount = Number.isInteger(playlist.trackCount)
+    ? playlist.trackCount
+    : playlistTrackIds(playlist).length;
   meta.textContent = `${trackCount} ${trackCount === 1 ? 'song' : 'songs'}`;
   copy.append(title, meta);
   button.append(
-    coverTrack ? renderCover(coverTrack, 'group-cover') : renderPlaylistPlaceholderCover(),
+    coverTrack
+      ? renderCover(coverTrack, 'group-cover')
+      : renderPlaylistCover(playlist),
     copy
   );
-  button.addEventListener('click', () => {
+  button.addEventListener('click', async () => {
     selectedPlaylistId = playlist.id;
     savePlayerState();
+    try {
+      await loadPlaylistDetailFromApi(playlist.id);
+    } catch (err) {
+      showToast(`Playlist detail failed: ${err.message}`);
+    }
     renderPlaylists();
   });
 
   return button;
+}
+
+function renderPlaylistCover(playlist) {
+  if (playlist.cover_track_id) {
+    return renderCover({
+      id: playlist.cover_track_id,
+      title: playlist.name
+    }, 'group-cover');
+  }
+
+  return renderPlaylistPlaceholderCover();
 }
 
 function renderPlaylistPlaceholderCover() {
@@ -2822,7 +3029,9 @@ function renderPlaylistDetail(playlistId) {
   title.className = 'detail-title';
   title.textContent = playlist.name;
   meta.className = 'detail-meta';
-  const trackCount = playlistTrackIds(playlist).length;
+  const trackCount = Number.isInteger(playlist.trackCount)
+    ? playlist.trackCount
+    : playlistTrackIds(playlist).length;
   meta.textContent = `${trackCount} ${trackCount === 1 ? 'song' : 'songs'}`;
   copy.append(title, meta);
 
@@ -2951,6 +3160,12 @@ async function loadTracks(searchValue = '') {
 
     const data = await response.json();
     allTracks = Array.isArray(data.tracks) ? data.tracks : [];
+    if (!hasLoadedPersistentLibraryState) {
+      await loadPersistentLibraryState();
+      if (selectedPlaylistId) {
+        await loadPlaylistDetailFromApi(selectedPlaylistId).catch(() => {});
+      }
+    }
     pruneMissingTrackReferences();
     applyTrackSearch(searchValue);
     refreshRecentlyPlayed();
