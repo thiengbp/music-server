@@ -1060,26 +1060,32 @@
 
       .playlist-placeholder {
         display: grid;
-        place-items: center;
-        min-height: 140px;
-        border: 1px dashed rgba(255, 255, 255, 0.12);
-        border-radius: 14px;
+        gap: 4px;
+        min-height: 0;
+        padding: 12px 6px;
         color: var(--muted);
-        text-align: center;
-        background: rgba(255, 255, 255, 0.035);
+        font-size: 12px;
       }
 
+      .empty-state,
       .playlist-empty-state {
         grid-column: 1 / -1;
+        display: grid;
         gap: 4px;
-        min-height: 96px;
+        min-height: 0;
+        padding: 12px 6px;
+        color: var(--muted);
+        font-size: 12px;
       }
 
+      .empty-state strong,
       .playlist-empty-state strong {
         color: var(--text);
         font-size: 13px;
+        font-weight: 760;
       }
 
+      .empty-state span,
       .playlist-empty-state span {
         color: var(--muted);
         font-size: 11px;
@@ -1391,6 +1397,28 @@
 
       .view-more-button[hidden] {
         display: none;
+      }
+
+      .toast-container {
+        position: fixed;
+        right: 20px;
+        bottom: 20px;
+        z-index: 1000;
+        display: grid;
+        gap: 8px;
+        pointer-events: none;
+      }
+
+      .toast {
+        background: rgba(20, 20, 20, 0.55);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.85);
+        max-width: 280px;
+        font-size: 0.85rem;
+        padding: 10px 14px;
+        border-radius: 14px;
       }
 
       .player-inner {
@@ -2340,6 +2368,8 @@
         </div>
       </section>
     </div>
+
+    <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="false"></div>
 
     <script src="/app.js"></script>
   </body>

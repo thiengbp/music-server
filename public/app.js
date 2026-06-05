@@ -26,6 +26,7 @@ const recentlyList = document.getElementById('recently-list');
 const playlistsList = document.getElementById('playlists-list');
 const queueList = document.getElementById('queue-list');
 const statusMessage = document.getElementById('status');
+const toastContainer = document.getElementById('toast-container');
 const recentlyStatus = document.getElementById('recently-status');
 const queueTitle = document.getElementById('queue-title');
 const searchInput = document.getElementById('search-input');
@@ -117,6 +118,22 @@ const trackDurationCache = new Map(
     .filter(([trackId, duration]) => Number.isInteger(trackId) && duration)
 );
 const trackRatings = new Map();
+
+function showToast(message) {
+  if (!toastContainer || !message) {
+    return;
+  }
+
+  const toast = document.createElement('div');
+
+  toast.className = 'toast';
+  toast.textContent = message;
+  toastContainer.append(toast);
+
+  setTimeout(() => {
+    toast.remove();
+  }, 3200);
+}
 
 function readStoredArray(key) {
   try {
@@ -1515,7 +1532,7 @@ function updateTrackInMemory(updatedTrack) {
 
 function addToQueue(track) {
   if (queueTrackIds[queueTrackIds.length - 1] === track.id) {
-    statusMessage.textContent = `Already at end of queue: ${track.title}`;
+    showToast(`Already at end of queue: ${track.title}`);
     renderQueue();
     return;
   }
@@ -1523,7 +1540,7 @@ function addToQueue(track) {
   queueTrackIds.push(track.id);
   saveQueue();
   renderQueue();
-  statusMessage.textContent = `Added to queue: ${track.title}`;
+  showToast(`Added to queue: ${track.title}`);
 }
 
 function playNext(track) {
@@ -1531,7 +1548,7 @@ function playNext(track) {
   queueTrackIds.splice(insertIndex, 0, track.id);
   saveQueue();
   renderQueue();
-  statusMessage.textContent = `Will play next: ${track.title}`;
+  showToast(`Will play next: ${track.title}`);
 }
 
 function removeFromQueue(index) {
@@ -1570,7 +1587,7 @@ function createPlaylist(name) {
   });
   savePlaylists();
   renderLibrary();
-  statusMessage.textContent = `Created playlist: ${trimmedName}`;
+  showToast(`Created playlist: ${trimmedName}`);
 }
 
 function addTrackToPlaylist(track, playlistId) {
@@ -1579,12 +1596,12 @@ function addTrackToPlaylist(track, playlistId) {
   const targetTrackIds = targetPlaylist ? playlistTrackIds(targetPlaylist) : [];
 
   if (!targetPlaylist) {
-    statusMessage.textContent = 'Playlist not found';
+    showToast('Playlist not found');
     return;
   }
 
   if (targetTrackIds.includes(hydratedTrack.id)) {
-    statusMessage.textContent = `Already in playlist: ${targetPlaylist.name}`;
+    showToast(`Already in playlist: ${targetPlaylist.name}`);
     renderLibrary();
     return;
   }
@@ -1603,7 +1620,7 @@ function addTrackToPlaylist(track, playlistId) {
   });
   savePlaylists();
   renderLibrary();
-  statusMessage.textContent = `Added to playlist: ${targetPlaylist.name}`;
+  showToast(`Added to playlist: ${targetPlaylist.name}`);
 }
 
 function removeTrackFromPlaylist(playlistId, trackId) {
@@ -1624,9 +1641,9 @@ function removeTrackFromPlaylist(playlistId, trackId) {
   });
   savePlaylists();
   renderLibrary();
-  statusMessage.textContent = playlist && track
+  showToast(playlist && track
     ? `Removed from playlist: ${playlist.name}`
-    : 'Removed from playlist';
+    : 'Removed from playlist');
 }
 
 async function recordTrackPlay(trackId) {
@@ -1963,7 +1980,7 @@ async function copyTrackInfo(track) {
   if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
     try {
       await navigator.clipboard.writeText(text);
-      statusMessage.textContent = `Copied: ${track.title}`;
+      showToast(`Copied: ${track.title}`);
       return;
     } catch (err) {
       // Fall back to the selection-based copy path below.
@@ -1981,9 +1998,9 @@ async function copyTrackInfo(track) {
 
   try {
     document.execCommand('copy');
-    statusMessage.textContent = `Copied: ${track.title}`;
+    showToast(`Copied: ${track.title}`);
   } catch (err) {
-    statusMessage.textContent = 'Copy is unavailable';
+    showToast('Copy is unavailable');
   } finally {
     textarea.remove();
   }
@@ -2443,6 +2460,24 @@ function renderQueueHeaderRow() {
   return header;
 }
 
+function renderEmptyState(titleText, copyText) {
+  const empty = document.createElement('div');
+  const title = document.createElement('strong');
+
+  empty.className = 'empty-state';
+  title.textContent = titleText;
+  empty.append(title);
+
+  if (copyText) {
+    const copy = document.createElement('span');
+
+    copy.textContent = copyText;
+    empty.append(copy);
+  }
+
+  return empty;
+}
+
 function renderGroupCard(item, type) {
   const button = document.createElement('button');
   const copy = document.createElement('span');
@@ -2511,9 +2546,19 @@ function setActiveLibraryTab(tabName) {
 function renderSongs() {
   const contextType = searchInput.value.trim() ? 'search' : 'songs';
   const contextId = searchInput.value.trim() || null;
-  trackList.replaceChildren(...tracks.map((track) => renderTrack(track, {
+  const rows = tracks.map((track) => renderTrack(track, {
     onClick: () => playTrackFromContext(track, contextType, contextId, tracks)
-  })));
+  }));
+
+  trackList.replaceChildren(
+    renderTrackHeaderRow(),
+    ...(rows.length > 0
+      ? rows
+      : [renderEmptyState(
+        searchInput.value.trim() ? 'No songs found' : 'No songs yet',
+        searchInput.value.trim() ? 'Try another search.' : 'Scan your music library to add tracks.'
+      )])
+  );
 }
 
 function renderAlbums() {
@@ -2558,9 +2603,12 @@ function renderAlbumDetail(albumName) {
   copy.append(title, meta);
 
   list.className = 'detail-track-grid album-detail-list';
-  list.append(...albumTracks.map((track) => renderDetailTrackRow(track, {
-    onClick: () => playTrackFromContext(track, 'album', albumName, albumTracks)
-  })));
+  list.append(
+    renderDetailTrackHeaderRow(),
+    ...albumTracks.map((track) => renderDetailTrackRow(track, {
+      onClick: () => playTrackFromContext(track, 'album', albumName, albumTracks)
+    }))
+  );
 
   header.append(backButton, copy);
   albumsList.replaceChildren(header, list);
@@ -2611,9 +2659,12 @@ function renderArtistDetail(artistName) {
   copy.append(title, meta);
 
   list.className = 'detail-track-grid artist-detail-list';
-  list.append(...artistTracks.map((track) => renderDetailTrackRow(track, {
-    onClick: () => playTrackFromContext(track, 'artist', artistName, artistTracks)
-  })));
+  list.append(
+    renderDetailTrackHeaderRow(),
+    ...artistTracks.map((track) => renderDetailTrackRow(track, {
+      onClick: () => playTrackFromContext(track, 'artist', artistName, artistTracks)
+    }))
+  );
 
   header.append(backButton, copy);
   artistsList.replaceChildren(header, list);
@@ -2621,11 +2672,10 @@ function renderArtistDetail(artistName) {
 
 function renderFavorites() {
   if (favoriteTracks.length === 0) {
-    const empty = document.createElement('div');
-
-    empty.className = 'playlist-placeholder';
-    empty.textContent = 'No favorite tracks yet';
-    favoritesList.replaceChildren(renderTrackHeaderRow(), empty);
+    favoritesList.replaceChildren(
+      renderTrackHeaderRow(),
+      renderEmptyState('No favorites yet')
+    );
     return;
   }
 
@@ -2641,18 +2691,22 @@ function renderRecentlyAdded() {
   const items = recentAddedTracks();
   recentlyAddedList.replaceChildren(
     renderTrackHeaderRow(),
-    ...items.map((track) => renderTrack(track, {
-      onClick: () => playTrackFromContext(track, 'recentAdded', null, items)
-    }))
+    ...(items.length > 0
+      ? items.map((track) => renderTrack(track, {
+        onClick: () => playTrackFromContext(track, 'recentAdded', null, items)
+      }))
+      : [renderEmptyState('No recently added tracks')])
   );
 }
 
 function renderRecentlyPlayed() {
   recentlyList.replaceChildren(
     renderTrackHeaderRow(),
-    ...recentTracks.map((track) => renderTrack(track, {
-      onClick: () => playTrackFromContext(track, 'recent', null, recentTracks)
-    }))
+    ...(recentTracks.length > 0
+      ? recentTracks.map((track) => renderTrack(track, {
+        onClick: () => playTrackFromContext(track, 'recent', null, recentTracks)
+      }))
+      : [renderEmptyState('No recently played tracks')])
   );
   recentlyStatus.textContent = recentTracks.length === 0
     ? 'No recently played tracks'
@@ -2687,15 +2741,7 @@ function renderPlaylists() {
   list.className = 'playlist-list';
 
   if (playlists.length === 0) {
-    const empty = document.createElement('div');
-    const title = document.createElement('strong');
-    const copy = document.createElement('span');
-
-    empty.className = 'playlist-placeholder playlist-empty-state';
-    title.textContent = 'No playlists yet';
-    copy.textContent = 'Create your first playlist above.';
-    empty.append(title, copy);
-    list.append(empty);
+    list.append(renderEmptyState('No playlists yet', 'Create your first playlist above.'));
   } else {
     list.append(...playlists.map((playlist) => renderPlaylistCard(playlist)));
   }
@@ -2783,11 +2829,10 @@ function renderPlaylistDetail(playlistId) {
   list.className = 'detail-track-grid playlist-detail-list';
 
   if (playlistItems.length === 0) {
-    const empty = document.createElement('div');
-
-    empty.className = 'playlist-placeholder';
-    empty.textContent = 'This playlist is empty';
-    list.append(renderDetailTrackHeaderRow(), empty);
+    list.append(
+      renderDetailTrackHeaderRow(),
+      renderEmptyState('No tracks yet', 'Add songs from the action menu')
+    );
   } else {
     list.append(
       renderDetailTrackHeaderRow(),
@@ -2853,15 +2898,10 @@ function renderQueue() {
   }
 
   if (queueItems.length === 0) {
-    const empty = document.createElement('div');
-    const title = document.createElement('strong');
-    const copy = document.createElement('span');
-
-    empty.className = 'queue-empty';
-    title.textContent = 'Queue is empty';
-    copy.textContent = 'Add songs with Play Next or Add to Queue.';
-    empty.append(title, copy);
-    queueSections.push(renderQueueHeaderRow(), empty);
+    queueSections.push(
+      renderQueueHeaderRow(),
+      renderEmptyState('Queue is empty', 'Add songs with Play Next or Add to Queue.')
+    );
   } else {
     const upNext = document.createElement('div');
     const label = document.createElement('span');
@@ -3121,7 +3161,7 @@ async function toggleFavorite(track) {
   });
 
   if (!response.ok) {
-    statusMessage.textContent = `Failed to update favorite: ${response.status}`;
+    showToast(`Failed to update favorite: ${response.status}`);
     return;
   }
 
@@ -3134,9 +3174,9 @@ async function toggleFavorite(track) {
   await loadTracks(searchInput.value);
   await loadFavorites();
   await loadRecentlyPlayed();
-  statusMessage.textContent = shouldFavorite
+  showToast(shouldFavorite
     ? `Added to favorites: ${track.title}`
-    : `Removed from favorites: ${track.title}`;
+    : `Removed from favorites: ${track.title}`);
 }
 
 coverArt.addEventListener('load', () => {
