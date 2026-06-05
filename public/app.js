@@ -9,8 +9,8 @@ const LEARNED_DURATIONS_STORAGE_KEY = 'music-server.learned-durations.v1';
 const AUTO_SCAN_ENABLED_STORAGE_KEY = 'musicServer.autoScan.enabled';
 const AUTO_SCAN_INTERVAL_STORAGE_KEY = 'musicServer.autoScan.intervalMinutes';
 const AUTO_SCAN_LAST_SCAN_STORAGE_KEY = 'musicServer.autoScan.lastScanAt';
-const ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v5';
-const LEGACY_ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v4';
+const ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v6';
+const LEGACY_ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v5';
 const ARTIST_INFO_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const COVER_URL_VERSION = 'v2';
 const RECENT_TRACK_LIMIT = 50;
@@ -821,6 +821,7 @@ function emptyArtistInfo(artistName = 'No artist selected') {
     artistName,
     bio: null,
     image: null,
+    imageSource: null,
     source: null,
     tags: [],
     genres: [],
@@ -969,6 +970,7 @@ function normalizeArtistInfoPayload(payload, artistName) {
     artistName: payload.name || payload.artist || artistName,
     bio: payload.bio || payload.description || payload.summary || null,
     image: payload.image || null,
+    imageSource: payload.imageSource || null,
     source: payload.source || 'local',
     tags: genres,
     genres,
@@ -997,7 +999,8 @@ function renderSourceBadges(info) {
   const sourceLabels = {
     local: 'Local',
     musicbrainz: 'MusicBrainz',
-    lastfm: 'Last.fm'
+    lastfm: 'Last.fm',
+    wikidata: 'Wikidata'
   };
   const sources = [];
 
@@ -1040,6 +1043,29 @@ function formatCompactNumber(value) {
   return value !== null && value !== undefined && Number.isFinite(Number(value))
     ? Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value)
     : null;
+}
+
+function formatCountryName(country) {
+  const countryNames = {
+    AU: 'Australia',
+    CA: 'Canada',
+    CL: 'Chile',
+    CN: 'China',
+    DE: 'Germany',
+    FR: 'France',
+    GB: 'United Kingdom',
+    JP: 'Japan',
+    KR: 'South Korea',
+    UK: 'United Kingdom',
+    US: 'United States',
+    VN: 'Vietnam'
+  };
+
+  if (!country) {
+    return 'N/A';
+  }
+
+  return countryNames[String(country).toUpperCase()] || country;
 }
 
 function renderHeroArtistInfo(info) {
@@ -1108,7 +1134,7 @@ function renderHeroArtistInfo(info) {
   heroArtistAlbumCount.textContent = Number.isInteger(artistInfo.albumCount)
     ? String(artistInfo.albumCount)
     : '—';
-  heroArtistListeners.textContent = artistInfo.country || 'N/A';
+  heroArtistListeners.textContent = formatCountryName(artistInfo.country);
   heroArtistTags.textContent = artistInfo.error
     ? artistInfo.error
     : metadataItems.length > 0

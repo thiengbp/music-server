@@ -131,8 +131,7 @@ async function getArtistInfo(req, res) {
       })
       .slice(0, 5);
     const localGenres = inferLocalTags(resolvedArtistName, artistTracks.slice(0, 25));
-    const canEnrichOnline = artistTracks.length > 0
-      && artistMatchKey(resolvedArtistName, true) !== artistMatchKey('Unknown artist', true);
+    const canEnrichOnline = artistMatchKey(resolvedArtistName, true) !== artistMatchKey('Unknown artist', true);
     let onlineMetadata = null;
 
     if (canEnrichOnline) {
@@ -163,6 +162,7 @@ async function getArtistInfo(req, res) {
       area: onlineMetadata?.area || null,
       genres,
       image: onlineMetadata?.image || null,
+      imageSource: onlineMetadata?.imageSource || null,
       source,
       tags: genres,
       listeners: onlineMetadata?.listeners ?? null,
@@ -181,8 +181,11 @@ async function getArtistInfo(req, res) {
       popularTracksSource: onlineMetadata?.popularTracks?.length > 0 ? 'lastfm' : 'local',
       externalIds: {
         musicbrainz: onlineMetadata?.musicbrainzId || null,
-        lastfm: onlineMetadata?.lastfmUrl || null
+        lastfm: onlineMetadata?.lastfmUrl || null,
+        wikidata: onlineMetadata?.wikidataId || null
       },
+      wikidataUrl: onlineMetadata?.wikidataUrl || null,
+      wikipediaUrl: onlineMetadata?.wikipediaUrl || null,
       disambiguation: onlineMetadata?.musicbrainzDisambiguation || null,
       artistType: onlineMetadata?.musicbrainzType || null,
       updatedAt: onlineMetadata?.updatedAt || new Date().toISOString(),

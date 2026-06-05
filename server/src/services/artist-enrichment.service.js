@@ -6,7 +6,7 @@ const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 6000;
 const MUSICBRAINZ_MIN_INTERVAL_MS = 1100;
 const USER_AGENT = 'music-server/2.4 (self-hosted music library)';
-const CACHE_MAPPING_VERSION = 4;
+const CACHE_MAPPING_VERSION = 5;
 const LASTFM_PLACEHOLDER_IMAGE_IDS = new Set([
   '2a96cbd8b46e442fc41c2b86b821562f'
 ]);
@@ -53,15 +53,19 @@ function ensureCacheTable() {
         area TEXT,
         tags_json TEXT NOT NULL DEFAULT '[]',
         image TEXT,
+        image_source TEXT,
         musicbrainz_id TEXT,
         musicbrainz_disambiguation TEXT,
         musicbrainz_type TEXT,
+        wikidata_id TEXT,
+        wikidata_url TEXT,
+        wikipedia_url TEXT,
         lastfm_url TEXT,
         listeners INTEGER,
         playcount INTEGER,
         popular_tracks_json TEXT NOT NULL DEFAULT '[]',
         sources_json TEXT NOT NULL DEFAULT '[]',
-        mapping_version INTEGER NOT NULL DEFAULT 4,
+        mapping_version INTEGER NOT NULL DEFAULT 5,
         updated_at TEXT NOT NULL
       )
     `).then(async () => {
@@ -86,6 +90,22 @@ function ensureCacheTable() {
 
       if (!columnNames.has('popular_tracks_json')) {
         await dbRun("ALTER TABLE artist_metadata_cache ADD COLUMN popular_tracks_json TEXT NOT NULL DEFAULT '[]'");
+      }
+
+      if (!columnNames.has('image_source')) {
+        await dbRun('ALTER TABLE artist_metadata_cache ADD COLUMN image_source TEXT');
+      }
+
+      if (!columnNames.has('wikidata_id')) {
+        await dbRun('ALTER TABLE artist_metadata_cache ADD COLUMN wikidata_id TEXT');
+      }
+
+      if (!columnNames.has('wikidata_url')) {
+        await dbRun('ALTER TABLE artist_metadata_cache ADD COLUMN wikidata_url TEXT');
+      }
+
+      if (!columnNames.has('wikipedia_url')) {
+        await dbRun('ALTER TABLE artist_metadata_cache ADD COLUMN wikipedia_url TEXT');
       }
     }).catch((err) => {
       cacheTableReady = null;
@@ -121,9 +141,13 @@ function mapCacheRow(row) {
     area: row.area,
     tags: parseJsonArray(row.tags_json),
     image: row.image,
+    imageSource: row.image_source,
     musicbrainzId: row.musicbrainz_id,
     musicbrainzDisambiguation: row.musicbrainz_disambiguation,
     musicbrainzType: row.musicbrainz_type,
+    wikidataId: row.wikidata_id,
+    wikidataUrl: row.wikidata_url,
+    wikipediaUrl: row.wikipedia_url,
     lastfmUrl: row.lastfm_url,
     listeners: row.listeners,
     playcount: row.playcount,
@@ -150,11 +174,12 @@ async function saveCachedArtist(artistName, metadata) {
 
   await dbRun(`
     INSERT INTO artist_metadata_cache (
-      normalized_key, artist_name, bio, country, area, tags_json, image,
+      normalized_key, artist_name, bio, country, area, tags_json, image, image_source,
       musicbrainz_id, musicbrainz_disambiguation, musicbrainz_type,
+      wikidata_id, wikidata_url, wikipedia_url,
       lastfm_url, listeners, playcount, popular_tracks_json,
       sources_json, mapping_version, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(normalized_key) DO UPDATE SET
       artist_name = excluded.artist_name,
       bio = excluded.bio,
@@ -162,9 +187,13 @@ async function saveCachedArtist(artistName, metadata) {
       area = excluded.area,
       tags_json = excluded.tags_json,
       image = excluded.image,
+      image_source = excluded.image_source,
       musicbrainz_id = excluded.musicbrainz_id,
       musicbrainz_disambiguation = excluded.musicbrainz_disambiguation,
       musicbrainz_type = excluded.musicbrainz_type,
+      wikidata_id = excluded.wikidata_id,
+      wikidata_url = excluded.wikidata_url,
+      wikipedia_url = excluded.wikipedia_url,
       lastfm_url = excluded.lastfm_url,
       listeners = excluded.listeners,
       playcount = excluded.playcount,
@@ -180,9 +209,13 @@ async function saveCachedArtist(artistName, metadata) {
     metadata.area,
     JSON.stringify(metadata.tags || []),
     metadata.image,
+    metadata.imageSource,
     metadata.musicbrainzId,
     metadata.musicbrainzDisambiguation,
     metadata.musicbrainzType,
+    metadata.wikidataId,
+    metadata.wikidataUrl,
+    metadata.wikipediaUrl,
     metadata.lastfmUrl,
     metadata.listeners,
     metadata.playcount,
@@ -268,6 +301,95 @@ async function fetchMusicBrainzArtist(artistName) {
       type: artist.type || null
     };
   });
+}
+
+function wikidataIdFromUrl(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  return value.match(/wikidata\.org\/(?:wiki|entity)\/(Q\d+)/i)?.[1] || null;
+}
+
+async function fetchMusicBrainzWikidataId(musicbrainzId) {
+  if (!musicbrainzId) {
+    return null;
+  }
+
+  const url = `https://musicbrainz.org/ws/2/artist/${encodeURIComponent(musicbrainzId)}?inc=url-rels&fmt=json`;
+
+  return scheduleMusicBrainzRequest(async () => {
+    const payload = await fetchJson(url, {
+      Accept: 'application/json',
+      'User-Agent': USER_AGENT
+    });
+    const relation = Array.isArray(payload.relations)
+      ? payload.relations.find((item) => item.type === 'wikidata' && item.url?.resource)
+      : null;
+
+    return wikidataIdFromUrl(relation?.url?.resource);
+  });
+}
+
+async function searchWikidataArtistId(artistName) {
+  const params = new URLSearchParams({
+    action: 'wbsearchentities',
+    search: artistName,
+    language: 'en',
+    format: 'json',
+    limit: '5'
+  });
+  const payload = await fetchJson(`https://www.wikidata.org/w/api.php?${params}`, {
+    Accept: 'application/json',
+    'User-Agent': USER_AGENT
+  });
+  const results = Array.isArray(payload.search) ? payload.search : [];
+  const exactKey = normalizedArtistKey(artistName);
+  const entity = results.find((item) => normalizedArtistKey(item.label || '') === exactKey)
+    || results[0];
+
+  return entity?.id || null;
+}
+
+function wikimediaFileUrl(fileName) {
+  if (!fileName) {
+    return null;
+  }
+
+  return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(fileName.replace(/ /g, '_'))}`;
+}
+
+async function fetchWikidataArtist(artistName, musicbrainzId) {
+  const wikidataId = await fetchMusicBrainzWikidataId(musicbrainzId)
+    || await searchWikidataArtistId(artistName);
+
+  if (!wikidataId) {
+    return null;
+  }
+
+  const params = new URLSearchParams({
+    action: 'wbgetentities',
+    ids: wikidataId,
+    props: 'claims|sitelinks',
+    sitefilter: 'enwiki',
+    format: 'json'
+  });
+  const payload = await fetchJson(`https://www.wikidata.org/w/api.php?${params}`, {
+    Accept: 'application/json',
+    'User-Agent': USER_AGENT
+  });
+  const entity = payload.entities?.[wikidataId];
+  const imageFileName = entity?.claims?.P18?.[0]?.mainsnak?.datavalue?.value || null;
+  const wikipediaTitle = entity?.sitelinks?.enwiki?.title || null;
+
+  return {
+    wikidataId,
+    wikidataUrl: `https://www.wikidata.org/wiki/${wikidataId}`,
+    wikipediaUrl: wikipediaTitle
+      ? `https://en.wikipedia.org/wiki/${encodeURIComponent(wikipediaTitle.replace(/ /g, '_'))}`
+      : null,
+    image: wikimediaFileUrl(imageFileName)
+  };
 }
 
 function stripHtml(value) {
@@ -413,9 +535,13 @@ async function enrichArtist(artistName) {
     area: cached?.area || null,
     tags: cached?.tags || [],
     image: cached?.image || null,
+    imageSource: cached?.imageSource || null,
     musicbrainzId: cached?.musicbrainzId || null,
     musicbrainzDisambiguation: cached?.musicbrainzDisambiguation || null,
     musicbrainzType: cached?.musicbrainzType || null,
+    wikidataId: cached?.wikidataId || null,
+    wikidataUrl: cached?.wikidataUrl || null,
+    wikipediaUrl: cached?.wikipediaUrl || null,
     lastfmUrl: cached?.lastfmUrl || null,
     listeners: cached?.listeners ?? null,
     playcount: cached?.playcount ?? null,
@@ -448,7 +574,10 @@ async function enrichArtist(artistName) {
       if (lastFm) {
         metadata.bio = lastFm.bio;
         metadata.tags = mergeTags(metadata.tags, lastFm.tags);
-        metadata.image = lastFm.image;
+        if (lastFm.image && metadata.imageSource !== 'wikidata') {
+          metadata.image = lastFm.image;
+          metadata.imageSource = 'lastfm';
+        }
         metadata.lastfmUrl = lastFm.lastfmUrl;
         metadata.listeners = lastFm.listeners;
         metadata.playcount = lastFm.playcount;
@@ -457,6 +586,25 @@ async function enrichArtist(artistName) {
       }
     } catch (err) {
       console.warn(`Last.fm enrichment failed for "${artistName}": ${err.message}`);
+    }
+  }
+
+  if (!isFresh || needsMappingRefresh) {
+    try {
+      const wikidata = await fetchWikidataArtist(artistName, metadata.musicbrainzId);
+
+      if (wikidata) {
+        metadata.wikidataId = wikidata.wikidataId;
+        metadata.wikidataUrl = wikidata.wikidataUrl;
+        metadata.wikipediaUrl = wikidata.wikipediaUrl;
+        if (wikidata.image) {
+          metadata.image = wikidata.image;
+          metadata.imageSource = 'wikidata';
+        }
+        metadata.sources = mergeTags(metadata.sources, ['wikidata']);
+      }
+    } catch (err) {
+      console.warn(`Wikidata enrichment failed for "${artistName}": ${err.message}`);
     }
   }
 
