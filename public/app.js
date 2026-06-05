@@ -879,6 +879,28 @@ function formatTrackDuration(track) {
   return duration ? formatTime(duration) : 'Unknown duration';
 }
 
+function formatPlaylistTotalDuration(playlistItems) {
+  const totalSeconds = playlistItems.reduce((total, track) => {
+    const duration = getTrackDisplayDuration(track);
+
+    return duration ? total + duration : total;
+  }, 0);
+
+  if (totalSeconds <= 0) {
+    return null;
+  }
+
+  if (totalSeconds < 3600) {
+    const minutes = Math.max(1, Math.round(totalSeconds / 60));
+    return `${minutes} min`;
+  }
+
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.round((totalSeconds % 3600) / 60);
+
+  return minutes > 0 ? `${hours} hr ${minutes} min` : `${hours} hr`;
+}
+
 function syncTrackDurationLabels() {
   document.querySelectorAll('[data-duration-track-id]').forEach((label) => {
     const track = findTrackById(Number(label.dataset.durationTrackId));
@@ -1738,6 +1760,19 @@ async function removeFromQueue(index) {
   updateQueueControls();
 }
 
+function moveQueueItem(index, direction) {
+  const nextIndex = index + direction;
+
+  if (nextIndex < 0 || nextIndex >= queueTrackIds.length) {
+    return;
+  }
+
+  [queueTrackIds[index], queueTrackIds[nextIndex]] = [queueTrackIds[nextIndex], queueTrackIds[index]];
+  saveQueue();
+  renderQueue();
+  updateQueueControls();
+}
+
 async function clearQueue() {
   queueTrackIds = [];
   queueActiveIndex = -1;
@@ -1828,6 +1863,102 @@ async function removeTrackFromPlaylist(playlistId, trackId) {
       : 'Removed from playlist');
   } catch (err) {
     showToast(`Remove from playlist failed: ${err.message}`);
+  }
+}
+
+async function renamePlaylist(playlistId) {
+  const playlist = playlists.find((currentPlaylist) => currentPlaylist.id === playlistId);
+
+  if (!playlist) {
+    showToast('Playlist not found');
+    return;
+  }
+
+  const nextName = window.prompt('Rename playlist', playlist.name);
+
+  if (nextName === null) {
+    return;
+  }
+
+  const trimmedName = nextName.trim();
+
+  if (!trimmedName) {
+    showToast('Playlist name cannot be empty');
+    return;
+  }
+
+  try {
+    const data = await requestJson(`/playlists/${encodeURIComponent(playlistId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name: trimmedName })
+    });
+    const updatedPlaylist = normalizeApiPlaylist(data.playlist);
+
+    playlists = playlists.map((currentPlaylist) => (
+      currentPlaylist.id === playlistId ? updatedPlaylist : currentPlaylist
+    ));
+    savePlaylists();
+    renderLibrary();
+    showToast(`Renamed playlist: ${trimmedName}`);
+  } catch (err) {
+    showToast(`Rename playlist failed: ${err.message}`);
+  }
+}
+
+async function deletePlaylist(playlistId) {
+  const playlist = playlists.find((currentPlaylist) => currentPlaylist.id === playlistId);
+
+  if (!playlist) {
+    showToast('Playlist not found');
+    return;
+  }
+
+  if (!window.confirm(`Delete playlist "${playlist.name}"?`)) {
+    return;
+  }
+
+  try {
+    await requestJson(`/playlists/${encodeURIComponent(playlistId)}`, {
+      method: 'DELETE'
+    });
+    playlists = playlists.filter((currentPlaylist) => currentPlaylist.id !== playlistId);
+    if (selectedPlaylistId === playlistId) {
+      selectedPlaylistId = null;
+    }
+    savePlaylists();
+    savePlayerState();
+    renderLibrary();
+    showToast(`Deleted playlist: ${playlist.name}`);
+  } catch (err) {
+    showToast(`Delete playlist failed: ${err.message}`);
+  }
+}
+
+async function movePlaylistTrack(playlistId, index, direction) {
+  const playlist = playlists.find((currentPlaylist) => currentPlaylist.id === playlistId);
+  const trackIds = playlist ? playlistTrackIds(playlist) : [];
+  const nextIndex = index + direction;
+
+  if (!playlist || nextIndex < 0 || nextIndex >= trackIds.length) {
+    return;
+  }
+
+  [trackIds[index], trackIds[nextIndex]] = [trackIds[nextIndex], trackIds[index]];
+
+  try {
+    const data = await requestJson(`/playlists/${encodeURIComponent(playlistId)}/tracks`, {
+      method: 'PUT',
+      body: JSON.stringify({ trackIds })
+    });
+    const updatedPlaylist = normalizeApiPlaylist(data.playlist);
+
+    playlists = playlists.map((currentPlaylist) => (
+      currentPlaylist.id === playlistId ? updatedPlaylist : currentPlaylist
+    ));
+    savePlaylists();
+    renderLibrary();
+  } catch (err) {
+    showToast(`Reorder playlist failed: ${err.message}`);
   }
 }
 
@@ -2451,6 +2582,22 @@ function renderTrack(track, options = {}) {
   return button;
 }
 
+function renderRowControlButton(label, ariaLabel, onClick, options = {}) {
+  const button = document.createElement('button');
+
+  button.type = 'button';
+  button.className = 'queue-remove-button row-control-button';
+  button.textContent = label;
+  button.disabled = Boolean(options.disabled);
+  button.setAttribute('aria-label', ariaLabel);
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    onClick();
+  });
+
+  return button;
+}
+
 function renderDetailTrackRow(track, options = {}) {
   track = hydrateTrack(track);
 
@@ -2516,7 +2663,7 @@ function renderQueueItem(track, index) {
   const artist = document.createElement('span');
   const album = document.createElement('span');
   const duration = document.createElement('span');
-  const removeButton = document.createElement('button');
+  const actions = document.createElement('span');
   const isActive = queueActiveIndex === index && track.id === activeTrackId;
 
   item.className = 'queue-item';
@@ -2530,22 +2677,24 @@ function renderQueueItem(track, index) {
   artist.className = 'queue-artist';
   album.className = 'queue-album';
   duration.className = 'queue-duration';
-  removeButton.type = 'button';
-  removeButton.className = 'queue-remove-button';
-  removeButton.textContent = '×';
-  removeButton.setAttribute('aria-label', `Remove ${track.title} from queue`);
+  actions.className = 'row-action-group';
 
   title.textContent = track.title;
   artist.textContent = formatArtist(track);
   album.textContent = formatAlbum(track);
   duration.textContent = formatTrackDuration(track);
 
-  removeButton.addEventListener('click', (event) => {
-    event.stopPropagation();
-    removeFromQueue(index);
-  });
+  actions.append(
+    renderRowControlButton('↑', `Move ${track.title} up`, () => moveQueueItem(index, -1), {
+      disabled: index === 0
+    }),
+    renderRowControlButton('↓', `Move ${track.title} down`, () => moveQueueItem(index, 1), {
+      disabled: index === queueTrackIds.length - 1
+    }),
+    renderRowControlButton('×', `Remove ${track.title} from queue`, () => removeFromQueue(index))
+  );
 
-  item.append(renderCover(track, 'queue-cover'), title, artist, album, duration, removeButton);
+  item.append(renderCover(track, 'queue-cover'), title, artist, album, duration, actions);
   item.addEventListener('click', () => playQueueAt(index));
   item.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
@@ -2938,15 +3087,18 @@ function renderPlaylists() {
 }
 
 function renderPlaylistCard(playlist) {
-  const button = document.createElement('button');
+  const card = document.createElement('div');
   const copy = document.createElement('span');
   const title = document.createElement('span');
   const meta = document.createElement('span');
+  const actions = document.createElement('span');
   const coverTrack = playlistTracks(playlist)[0];
 
-  button.type = 'button';
-  button.className = 'playlist-card';
+  card.className = 'playlist-card';
+  card.setAttribute('role', 'button');
+  card.tabIndex = 0;
   copy.className = 'playlist-card-copy';
+  actions.className = 'playlist-card-actions';
   title.className = 'group-title';
   meta.className = 'group-meta';
   title.textContent = playlist.name;
@@ -2955,13 +3107,18 @@ function renderPlaylistCard(playlist) {
     : playlistTrackIds(playlist).length;
   meta.textContent = `${trackCount} ${trackCount === 1 ? 'song' : 'songs'}`;
   copy.append(title, meta);
-  button.append(
+  actions.append(
+    renderRowControlButton('Rename', `Rename ${playlist.name}`, () => renamePlaylist(playlist.id)),
+    renderRowControlButton('Delete', `Delete ${playlist.name}`, () => deletePlaylist(playlist.id))
+  );
+  card.append(
     coverTrack
       ? renderCover(coverTrack, 'group-cover')
       : renderPlaylistCover(playlist),
-    copy
+    copy,
+    actions
   );
-  button.addEventListener('click', async () => {
+  card.addEventListener('click', async () => {
     selectedPlaylistId = playlist.id;
     savePlayerState();
     try {
@@ -2971,8 +3128,14 @@ function renderPlaylistCard(playlist) {
     }
     renderPlaylists();
   });
+  card.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      card.click();
+    }
+  });
 
-  return button;
+  return card;
 }
 
 function renderPlaylistCover(playlist) {
@@ -3032,7 +3195,11 @@ function renderPlaylistDetail(playlistId) {
   const trackCount = Number.isInteger(playlist.trackCount)
     ? playlist.trackCount
     : playlistTrackIds(playlist).length;
-  meta.textContent = `${trackCount} ${trackCount === 1 ? 'song' : 'songs'}`;
+  const totalDuration = formatPlaylistTotalDuration(playlistItems);
+  meta.textContent = [
+    `${trackCount} ${trackCount === 1 ? 'song' : 'songs'}`,
+    totalDuration
+  ].filter(Boolean).join(' · ');
   copy.append(title, meta);
 
   list.className = 'detail-track-grid playlist-detail-list';
@@ -3045,7 +3212,7 @@ function renderPlaylistDetail(playlistId) {
   } else {
     list.append(
       renderDetailTrackHeaderRow(),
-      ...playlistItems.map((track) => renderPlaylistTrackRow(track, playlist.id, playlistItems))
+      ...playlistItems.map((track, index) => renderPlaylistTrackRow(track, playlist.id, playlistItems, index))
     );
   }
 
@@ -3053,22 +3220,24 @@ function renderPlaylistDetail(playlistId) {
   playlistsList.replaceChildren(header, list);
 }
 
-function renderPlaylistTrackRow(track, playlistId, playlistItems = []) {
+function renderPlaylistTrackRow(track, playlistId, playlistItems = [], index = 0) {
   const row = renderDetailTrackRow(track, {
     playlistId,
     onClick: () => playTrackFromContext(track, 'playlist', playlistId, playlistItems)
   });
-  const removeButton = document.createElement('button');
+  const actions = document.createElement('span');
 
-  removeButton.type = 'button';
-  removeButton.className = 'queue-remove-button';
-  removeButton.textContent = '×';
-  removeButton.setAttribute('aria-label', `Remove ${track.title} from playlist`);
-  removeButton.addEventListener('click', (event) => {
-    event.stopPropagation();
-    removeTrackFromPlaylist(playlistId, track.id);
-  });
-  row.append(removeButton);
+  actions.className = 'row-action-group';
+  actions.append(
+    renderRowControlButton('↑', `Move ${track.title} up`, () => movePlaylistTrack(playlistId, index, -1), {
+      disabled: index === 0
+    }),
+    renderRowControlButton('↓', `Move ${track.title} down`, () => movePlaylistTrack(playlistId, index, 1), {
+      disabled: index === playlistItems.length - 1
+    }),
+    renderRowControlButton('×', `Remove ${track.title} from playlist`, () => removeTrackFromPlaylist(playlistId, track.id))
+  );
+  row.append(actions);
 
   return row;
 }

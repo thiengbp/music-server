@@ -302,6 +302,55 @@ async function removeTrackFromPlaylist(playlistId, trackId) {
   return getPlaylist(playlistId);
 }
 
+async function replacePlaylistTracks(playlistId, trackIds) {
+  await ensureSchema();
+
+  const playlist = await findPlaylist(playlistId);
+
+  if (!playlist) {
+    const err = new Error('Playlist not found');
+    err.code = 'PLAYLIST_NOT_FOUND';
+    throw err;
+  }
+
+  const uniqueTrackIds = [];
+  const seenTrackIds = new Set();
+
+  for (const trackId of trackIds) {
+    if (seenTrackIds.has(trackId)) {
+      continue;
+    }
+
+    const track = await findTrack(trackId);
+
+    if (track) {
+      seenTrackIds.add(trackId);
+      uniqueTrackIds.push(trackId);
+    }
+  }
+
+  await dbRun('BEGIN IMMEDIATE TRANSACTION');
+
+  try {
+    await dbRun('DELETE FROM playlist_tracks WHERE playlist_id = ?', [playlistId]);
+
+    for (let index = 0; index < uniqueTrackIds.length; index += 1) {
+      await dbRun(`
+        INSERT INTO playlist_tracks (playlist_id, track_id, position)
+        VALUES (?, ?, ?)
+      `, [playlistId, uniqueTrackIds[index], index]);
+    }
+
+    await dbRun('UPDATE playlists SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', [playlistId]);
+    await dbRun('COMMIT');
+  } catch (err) {
+    await dbRun('ROLLBACK').catch(() => {});
+    throw err;
+  }
+
+  return getPlaylist(playlistId);
+}
+
 async function getQueueItems() {
   await ensureSchema();
 
@@ -469,6 +518,7 @@ module.exports = {
   deletePlaylist,
   addTrackToPlaylist,
   removeTrackFromPlaylist,
+  replacePlaylistTracks,
   getQueue,
   replaceQueue,
   addQueueItem,

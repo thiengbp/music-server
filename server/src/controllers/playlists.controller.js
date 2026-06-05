@@ -20,6 +20,26 @@ function parseTrackId(body) {
   return libraryStateService.parsePositiveInteger(body && body.trackId);
 }
 
+function parseTrackIds(body) {
+  if (!body || !Array.isArray(body.trackIds)) {
+    return null;
+  }
+
+  const seenTrackIds = new Set();
+  const trackIds = [];
+
+  body.trackIds.forEach((value) => {
+    const trackId = libraryStateService.parsePositiveInteger(value);
+
+    if (trackId && !seenTrackIds.has(trackId)) {
+      seenTrackIds.add(trackId);
+      trackIds.push(trackId);
+    }
+  });
+
+  return trackIds;
+}
+
 async function listPlaylists(req, res) {
   try {
     const playlists = await libraryStateService.listPlaylists();
@@ -186,6 +206,34 @@ async function removeTrackFromPlaylist(req, res) {
   }
 }
 
+async function replacePlaylistTracks(req, res) {
+  const playlistId = parsePlaylistId(req.params.id);
+  const trackIds = parseTrackIds(req.body);
+
+  if (!playlistId) {
+    return res.status(400).json({ error: 'Invalid playlist id' });
+  }
+
+  if (!trackIds) {
+    return res.status(400).json({ error: 'Invalid track ids' });
+  }
+
+  try {
+    const playlist = await libraryStateService.replacePlaylistTracks(playlistId, trackIds);
+
+    return res.json({ playlist });
+  } catch (err) {
+    if (err.code === 'PLAYLIST_NOT_FOUND') {
+      return res.status(404).json({ error: 'Playlist not found' });
+    }
+
+    return res.status(500).json({
+      error: 'Failed to reorder playlist tracks',
+      message: err.message
+    });
+  }
+}
+
 module.exports = {
   listPlaylists,
   createPlaylist,
@@ -193,5 +241,6 @@ module.exports = {
   updatePlaylist,
   deletePlaylist,
   addTrackToPlaylist,
-  removeTrackFromPlaylist
+  removeTrackFromPlaylist,
+  replacePlaylistTracks
 };

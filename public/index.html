@@ -1158,7 +1158,7 @@
 
       .playlist-card {
         display: grid;
-        grid-template-columns: 62px minmax(0, 1fr);
+        grid-template-columns: 62px minmax(0, 1fr) auto;
         gap: 12px;
         align-items: center;
         min-height: 82px;
@@ -1193,17 +1193,30 @@
         min-width: 0;
       }
 
+      .playlist-card-actions,
+      .row-action-group {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 5px;
+        min-width: 0;
+      }
+
+      .playlist-card-actions {
+        align-self: center;
+      }
+
       .playlist-card .group-meta {
         margin: 0;
         text-align: left;
       }
 
       .playlist-detail-list .detail-track-row {
-        grid-template-columns: 30px minmax(180px, 1.7fr) minmax(120px, 1fr) minmax(150px, 1.2fr) 54px 24px 22px 24px;
+        grid-template-columns: 30px minmax(180px, 1.7fr) minmax(120px, 1fr) minmax(150px, 1.2fr) 54px 24px 22px minmax(72px, auto);
       }
 
       .playlist-detail-list .detail-track-header-row {
-        grid-template-columns: 30px minmax(180px, 1.7fr) minmax(120px, 1fr) minmax(150px, 1.2fr) 54px 24px 22px 24px;
+        grid-template-columns: 30px minmax(180px, 1.7fr) minmax(120px, 1fr) minmax(150px, 1.2fr) 54px 24px 22px minmax(72px, auto);
       }
 
       .group-card > span:last-child {
@@ -1279,7 +1292,7 @@
         top: 0;
         z-index: 5;
         display: grid;
-        grid-template-columns: 30px minmax(220px, 2fr) minmax(120px, 1fr) minmax(150px, 1.1fr) 64px 44px;
+        grid-template-columns: 30px minmax(220px, 2fr) minmax(120px, 1fr) minmax(150px, 1.1fr) 64px minmax(72px, auto);
         gap: 10px;
         align-items: center;
         min-height: 35px;
@@ -1308,7 +1321,7 @@
       }
 
       .queue-item {
-        grid-template-columns: 30px minmax(220px, 2fr) minmax(120px, 1fr) minmax(150px, 1.1fr) 64px 44px;
+        grid-template-columns: 30px minmax(220px, 2fr) minmax(120px, 1fr) minmax(150px, 1.1fr) 64px minmax(72px, auto);
         gap: 10px;
       }
 
@@ -1374,6 +1387,30 @@
         color: #ffffff;
         outline: none;
         transform: scale(1.04);
+      }
+
+      .row-control-button {
+        flex: 0 0 auto;
+      }
+
+      .playlist-card-actions .row-control-button {
+        width: auto;
+        min-width: 48px;
+        padding: 0 8px;
+        font-size: 10px;
+      }
+
+      .row-control-button:disabled {
+        cursor: default;
+        opacity: 0.35;
+        transform: none;
+      }
+
+      .row-control-button:disabled:hover,
+      .row-control-button:disabled:focus {
+        background: rgba(255, 255, 255, 0.07);
+        color: var(--muted);
+        transform: none;
       }
 
       .queue-icon {
