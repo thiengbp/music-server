@@ -6,6 +6,7 @@ const express = require('express');
 const path = require('path');
 const db = require('./config/database');
 const artistRoutes = require('./routes/artists.routes');
+const collectionsRoutes = require('./routes/collections.routes');
 const coverRoutes = require('./routes/cover.routes');
 const libraryRoutes = require('./routes/library.routes');
 const playlistsRoutes = require('./routes/playlists.routes');
@@ -51,6 +52,7 @@ app.get('/health', async (req, res) => {
 app.use('/tracks', tracksRoutes);
 app.use('/tracks', coverRoutes);
 app.use('/artists', artistRoutes);
+app.use('/collections', collectionsRoutes);
 app.use('/library', libraryRoutes);
 app.use('/playlists', playlistsRoutes);
 app.use('/queue', queueRoutes);

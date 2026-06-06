@@ -21,6 +21,7 @@ const trackList = document.getElementById('track-list');
 const albumsList = document.getElementById('albums-list');
 const artistsList = document.getElementById('artists-list');
 const favoritesList = document.getElementById('favorites-list');
+const collectionsList = document.getElementById('collections-list');
 const recentlyAddedList = document.getElementById('recently-added-list');
 const recentlyList = document.getElementById('recently-list');
 const playlistsList = document.getElementById('playlists-list');
@@ -75,6 +76,9 @@ let activeTrackId = null;
 let allTracks = [];
 let tracks = [];
 let favoriteTracks = [];
+let smartCollections = [];
+let selectedCollectionId = null;
+let selectedCollection = null;
 let recentTracks = [];
 let currentTrackIndex = -1;
 let isShuffleEnabled = false;
@@ -428,6 +432,7 @@ function normalizePlayerState(value) {
     'albums',
     'artists',
     'favorites',
+    'collections',
     'recentAdded',
     'recent',
     'playlists',
@@ -879,6 +884,10 @@ function formatTrackDuration(track) {
   return duration ? formatTime(duration) : 'Unknown duration';
 }
 
+function formatTrackCount(count) {
+  return `${count} ${count === 1 ? 'song' : 'songs'}`;
+}
+
 function formatPlaylistTotalDuration(playlistItems) {
   const totalSeconds = playlistItems.reduce((total, track) => {
     const duration = getTrackDisplayDuration(track);
@@ -1236,6 +1245,33 @@ function renderSourceBadges(info) {
   );
 }
 
+function sourceBadgeElements(info) {
+  const sourceLabels = {
+    local: 'Local',
+    musicbrainz: 'MusicBrainz',
+    lastfm: 'Last.fm',
+    wikidata: 'Wikidata'
+  };
+  const sources = [];
+
+  if (info && info.source) {
+    info.source.split('+').forEach((source) => {
+      const label = sourceLabels[source] || source;
+
+      if (!sources.includes(label)) {
+        sources.push(label);
+      }
+    });
+  }
+
+  return (sources.length > 0 ? sources : ['Local']).map((source) => {
+    const badge = document.createElement('span');
+    badge.className = 'artist-source-pill';
+    badge.textContent = source;
+    return badge;
+  });
+}
+
 function normalizeArtistDescription(value) {
   if (typeof value !== 'string') {
     return null;
@@ -1374,6 +1410,31 @@ function renderHeroArtistInfo(info) {
   renderSourceBadges(artistInfo);
 }
 
+async function getArtistInfo(artistName) {
+  if (!artistName || isUnknownArtistName(artistName)) {
+    return emptyArtistInfo();
+  }
+
+  const cacheKey = cacheKeyForArtist(artistName);
+  const cachedInfo = artistInfoCache.get(cacheKey);
+
+  if (isFreshArtistInfo(cachedInfo)) {
+    return cachedInfo;
+  }
+
+  const response = await fetch(`/artists/${encodeURIComponent(artistName)}/info`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to load artist info: ${response.status}`);
+  }
+
+  const payload = await response.json();
+  const artistInfo = normalizeArtistInfoPayload(payload, artistName);
+
+  saveArtistInfoToCache(artistInfo);
+  return artistInfo;
+}
+
 async function loadArtistInfoForTrack(track) {
   if (!track) {
     activeArtistInfoRequest = null;
@@ -1404,20 +1465,12 @@ async function loadArtistInfoForTrack(track) {
   });
 
   try {
-    const response = await fetch(`/artists/${encodeURIComponent(artistName)}/info`);
-
-    if (!response.ok) {
-      throw new Error(`Failed to load artist info: ${response.status}`);
-    }
-
-    const payload = await response.json();
+    const artistInfo = await getArtistInfo(artistName);
 
     if (activeArtistInfoRequest !== artistName) {
       return;
     }
 
-    const artistInfo = normalizeArtistInfoPayload(payload, artistName);
-    saveArtistInfoToCache(artistInfo);
     renderHeroArtistInfo(artistInfo);
   } catch (err) {
     if (activeArtistInfoRequest !== artistName) {
@@ -1746,6 +1799,19 @@ async function playNext(track) {
   showToast(`Will play next: ${track.title}`);
 }
 
+function addTracksToQueue(trackItems, message = 'Added to queue') {
+  const trackIds = normalizeTrackIds(trackItems);
+
+  if (trackIds.length === 0) {
+    return;
+  }
+
+  queueTrackIds.push(...trackIds);
+  saveQueue();
+  renderQueue();
+  showToast(`${message}: ${trackIds.length} ${trackIds.length === 1 ? 'song' : 'songs'}`);
+}
+
 async function removeFromQueue(index) {
   queueTrackIds.splice(index, 1);
 
@@ -1971,9 +2037,18 @@ async function recordTrackPlay(trackId) {
   refreshRecentlyPlayed();
 
   try {
-    await fetch(`/tracks/${trackId}/play`, {
+    const response = await fetch(`/tracks/${trackId}/play`, {
       method: 'POST'
     });
+
+    if (response.ok) {
+      const data = await response.json().catch(() => ({}));
+
+      if (data.track) {
+        updateTrackInMemory(data.track);
+      }
+      await loadCollections();
+    }
   } catch (err) {
     recentlyStatus.textContent = recentTracks.length === 0
       ? err.message
@@ -2553,6 +2628,34 @@ function renderTrack(track, options = {}) {
   duration.textContent = formatTrackDuration(track);
 
   details.append(title, artist, album, genre, year, duration);
+  artist.classList.add('meta-link');
+  album.classList.add('meta-link');
+  artist.setAttribute('role', 'button');
+  album.setAttribute('role', 'button');
+  artist.tabIndex = 0;
+  album.tabIndex = 0;
+  artist.addEventListener('click', (event) => {
+    event.stopPropagation();
+    viewTrackArtist(track);
+  });
+  album.addEventListener('click', (event) => {
+    event.stopPropagation();
+    viewTrackAlbum(track);
+  });
+  artist.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      viewTrackArtist(track);
+    }
+  });
+  album.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      viewTrackAlbum(track);
+    }
+  });
   button.append(
     renderCover(track, 'thumbnail'),
     details,
@@ -2627,6 +2730,20 @@ function renderDetailTrackRow(track, options = {}) {
   duration.textContent = formatTrackDuration(track);
 
   details.append(title, artist, album);
+  artist.classList.add('meta-link');
+  album.classList.add('meta-link');
+  artist.setAttribute('role', 'button');
+  album.setAttribute('role', 'button');
+  artist.tabIndex = 0;
+  album.tabIndex = 0;
+  artist.addEventListener('click', (event) => {
+    event.stopPropagation();
+    viewTrackArtist(track);
+  });
+  album.addEventListener('click', (event) => {
+    event.stopPropagation();
+    viewTrackAlbum(track);
+  });
   row.append(
     renderCover(track, 'detail-cover'),
     details,
@@ -2693,6 +2810,16 @@ function renderQueueItem(track, index) {
     }),
     renderRowControlButton('×', `Remove ${track.title} from queue`, () => removeFromQueue(index))
   );
+  artist.classList.add('meta-link');
+  album.classList.add('meta-link');
+  artist.addEventListener('click', (event) => {
+    event.stopPropagation();
+    viewTrackArtist(track);
+  });
+  album.addEventListener('click', (event) => {
+    event.stopPropagation();
+    viewTrackAlbum(track);
+  });
 
   item.append(renderCover(track, 'queue-cover'), title, artist, album, duration, actions);
   item.addEventListener('click', () => playQueueAt(index));
@@ -2849,9 +2976,13 @@ function renderGroupCard(item, type) {
 }
 
 function groupByTrackField(field, fallback) {
+  return groupByTracks(tracks, field, fallback);
+}
+
+function groupByTracks(trackItems, field, fallback) {
   const grouped = new Map();
 
-  tracks.forEach((track) => {
+  trackItems.forEach((track) => {
     const name = track[field] || fallback;
     const current = grouped.get(name) || {
       name,
@@ -2897,6 +3028,103 @@ function renderSongs() {
   );
 }
 
+function renderCollections() {
+  if (selectedCollectionId && selectedCollection) {
+    renderCollectionDetail(selectedCollection);
+    return;
+  }
+
+  const cards = document.createElement('div');
+
+  cards.className = 'playlist-list collections-grid';
+
+  if (smartCollections.length === 0) {
+    collectionsList.className = 'playlist-view';
+    collectionsList.replaceChildren(renderEmptyState('No smart collections yet', 'Play tracks to build listening intelligence.'));
+    return;
+  }
+
+  cards.append(...smartCollections.map((collection) => {
+    const card = document.createElement('button');
+    const copy = document.createElement('span');
+    const title = document.createElement('span');
+    const meta = document.createElement('span');
+    const cover = document.createElement('span');
+
+    card.type = 'button';
+    card.className = 'playlist-card collection-card';
+    cover.className = 'group-cover collection-cover';
+    cover.textContent = '◆';
+    copy.className = 'playlist-card-copy';
+    title.className = 'group-title';
+    meta.className = 'group-meta';
+    title.textContent = collection.title;
+    meta.textContent = collection.description || formatTrackCount(collection.count || 0);
+    copy.append(title, meta);
+    card.append(cover, copy);
+    card.addEventListener('click', () => openCollection(collection.id));
+
+    return card;
+  }));
+
+  collectionsList.className = 'playlist-view';
+  collectionsList.replaceChildren(cards);
+}
+
+async function openCollection(collectionId) {
+  try {
+    const data = await requestJson(`/collections/${encodeURIComponent(collectionId)}`);
+
+    selectedCollectionId = collectionId;
+    selectedCollection = data.collection || null;
+    setActiveLibraryTab('collections');
+    renderCollections();
+  } catch (err) {
+    showToast(`Collection failed: ${err.message}`);
+  }
+}
+
+function renderCollectionDetail(collection) {
+  const collectionTracks = Array.isArray(collection.tracks) ? collection.tracks : [];
+  const header = document.createElement('div');
+  const backButton = document.createElement('button');
+  const copy = document.createElement('div');
+  const title = document.createElement('h3');
+  const meta = document.createElement('p');
+  const list = document.createElement('div');
+
+  collectionsList.className = 'detail-view collection-detail-view';
+  header.className = 'detail-header collection-detail-header';
+  backButton.type = 'button';
+  backButton.className = 'detail-back-button';
+  backButton.textContent = '←';
+  backButton.setAttribute('aria-label', 'Back to smart collections');
+  backButton.title = 'Smart Collections';
+  backButton.addEventListener('click', () => {
+    selectedCollectionId = null;
+    selectedCollection = null;
+    renderCollections();
+  });
+  title.className = 'detail-title';
+  title.textContent = collection.title;
+  meta.className = 'detail-meta';
+  meta.textContent = formatTrackCount(collectionTracks.length);
+  copy.append(title, meta);
+
+  list.className = 'track-grid-4 collection-track-list';
+  list.append(
+    renderTrackHeaderRow(),
+    ...(collectionTracks.length > 0
+      ? collectionTracks.map((track) => renderTrack(track, {
+        onClick: () => playTrackFromContext(track, `collection:${collection.id}`, collection.id, collectionTracks)
+      }))
+      : [renderEmptyState('No tracks yet')])
+  );
+
+  header.append(backButton, copy);
+  collectionsList.replaceChildren(header, list);
+}
+
 function renderAlbums() {
   const albums = groupByTrackField('album', 'Unknown album');
 
@@ -2915,13 +3143,20 @@ function renderAlbumDetail(albumName) {
   const albumTracks = tracks.filter((track) => formatAlbum(track) === albumName);
   const header = document.createElement('div');
   const backButton = document.createElement('button');
+  const cover = document.createElement('div');
   const copy = document.createElement('div');
   const title = document.createElement('h3');
   const meta = document.createElement('p');
+  const actions = document.createElement('div');
+  const playButton = document.createElement('button');
+  const queueButton = document.createElement('button');
   const list = document.createElement('div');
+  const coverTrack = albumTracks[0];
+  const albumArtist = coverTrack ? formatArtist(coverTrack) : 'Unknown artist';
+  const totalDuration = formatPlaylistTotalDuration(albumTracks);
 
   albumsList.className = 'detail-view';
-  header.className = 'detail-header album-detail-header';
+  header.className = 'detail-header detail-hero album-detail-header';
   backButton.type = 'button';
   backButton.className = 'detail-back-button album-back-button';
   backButton.textContent = '←';
@@ -2935,8 +3170,30 @@ function renderAlbumDetail(albumName) {
   title.className = 'detail-title album-detail-title';
   title.textContent = albumName;
   meta.className = 'detail-meta album-detail-meta';
-  meta.textContent = `${albumTracks.length} ${albumTracks.length === 1 ? 'song' : 'songs'}`;
-  copy.append(title, meta);
+  meta.textContent = [
+    albumArtist,
+    formatTrackCount(albumTracks.length),
+    totalDuration
+  ].filter(Boolean).join(' · ');
+  cover.className = 'detail-hero-cover';
+  cover.append(coverTrack ? renderCover(coverTrack, 'group-cover') : renderPlaylistPlaceholderCover());
+  actions.className = 'detail-actions';
+  playButton.type = 'button';
+  playButton.className = 'view-more-button';
+  playButton.textContent = 'Play album';
+  playButton.disabled = albumTracks.length === 0;
+  playButton.addEventListener('click', () => {
+    if (albumTracks.length > 0) {
+      playTrackFromContext(albumTracks[0], 'album', albumName, albumTracks);
+    }
+  });
+  queueButton.type = 'button';
+  queueButton.className = 'view-more-button';
+  queueButton.textContent = 'Add album to queue';
+  queueButton.disabled = albumTracks.length === 0;
+  queueButton.addEventListener('click', () => addTracksToQueue(albumTracks, 'Added album to queue'));
+  actions.append(playButton, queueButton);
+  copy.append(title, meta, actions);
 
   list.className = 'detail-track-grid album-detail-list';
   list.append(
@@ -2946,7 +3203,7 @@ function renderAlbumDetail(albumName) {
     }))
   );
 
-  header.append(backButton, copy);
+  header.append(backButton, cover, copy);
   albumsList.replaceChildren(header, list);
 }
 
@@ -2966,16 +3223,27 @@ function renderArtists() {
 
 function renderArtistDetail(artistName) {
   const artistTracks = tracks.filter((track) => formatArtist(track) === artistName);
-  const cachedInfo = artistInfoCache.get(cacheKeyForArtist(artistName));
+  const cachedInfo = artistInfoCache.get(cacheKeyForArtist(artistName)) || localArtistInfoFallback(artistName);
+  const artistAlbums = groupByTracks(artistTracks, 'album', 'Unknown album');
+  const popularTracks = cachedInfo.popularTracks?.length > 0
+    ? cachedInfo.popularTracks
+    : cachedInfo.topTracks;
   const header = document.createElement('div');
   const backButton = document.createElement('button');
+  const avatar = document.createElement('div');
+  const avatarImage = document.createElement('img');
   const copy = document.createElement('div');
   const title = document.createElement('h3');
   const meta = document.createElement('p');
+  const bio = document.createElement('p');
+  const sources = document.createElement('div');
+  const stats = document.createElement('div');
+  const albums = document.createElement('div');
+  const popular = document.createElement('div');
   const list = document.createElement('div');
 
   artistsList.className = 'detail-view';
-  header.className = 'detail-header artist-detail-header';
+  header.className = 'detail-header detail-hero artist-detail-header';
   backButton.type = 'button';
   backButton.className = 'detail-back-button artist-back-button';
   backButton.textContent = '←';
@@ -2989,10 +3257,35 @@ function renderArtistDetail(artistName) {
   title.className = 'detail-title artist-detail-title';
   title.textContent = artistName;
   meta.className = 'detail-meta artist-detail-meta';
-  meta.textContent = cachedInfo && Number.isInteger(cachedInfo.albumCount)
-    ? `${artistTracks.length} ${artistTracks.length === 1 ? 'song' : 'songs'} · ${cachedInfo.albumCount} ${cachedInfo.albumCount === 1 ? 'album' : 'albums'}`
-    : `${artistTracks.length} ${artistTracks.length === 1 ? 'song' : 'songs'}`;
-  copy.append(title, meta);
+  meta.textContent = [
+    formatTrackCount(artistTracks.length),
+    `${artistAlbums.length} ${artistAlbums.length === 1 ? 'album' : 'albums'}`,
+    cachedInfo.listeners ? `Listeners ${formatCompactNumber(cachedInfo.listeners)}` : null,
+    cachedInfo.playcount ? `Playcount ${formatCompactNumber(cachedInfo.playcount)}` : null
+  ].filter(Boolean).join(' · ');
+  avatar.className = 'artist-detail-avatar';
+  avatar.textContent = artistInitials(artistName);
+  if (cachedInfo.image) {
+    avatarImage.alt = '';
+    avatarImage.src = cachedInfo.image;
+    avatarImage.addEventListener('load', () => {
+      avatar.textContent = '';
+      avatar.append(avatarImage);
+    });
+  }
+  bio.className = 'artist-detail-bio';
+  bio.textContent = normalizeArtistDescription(cachedInfo.bio)
+    || normalizeArtistDescription(cachedInfo.disambiguation)
+    || (cachedInfo.area ? `Area: ${cachedInfo.area}` : 'Additional artist information is unavailable.');
+  sources.className = 'artist-detail-sources';
+  sources.append(...sourceBadgeElements(cachedInfo));
+  stats.className = 'artist-detail-stats';
+  stats.textContent = `Tracks ${artistTracks.length} · Albums ${artistAlbums.length} · Country ${formatCountryName(cachedInfo.country)}`;
+  albums.className = 'artist-detail-mini-section';
+  albums.textContent = `Albums: ${artistAlbums.slice(0, 4).map((album) => album.name).join(' · ') || 'N/A'}`;
+  popular.className = 'artist-detail-mini-section';
+  popular.textContent = `Popular Tracks: ${(popularTracks || []).slice(0, 3).map((track) => track.title).join(' · ') || 'N/A'}`;
+  copy.append(title, meta, bio, sources, stats, albums, popular);
 
   list.className = 'detail-track-grid artist-detail-list';
   list.append(
@@ -3002,8 +3295,18 @@ function renderArtistDetail(artistName) {
     }))
   );
 
-  header.append(backButton, copy);
+  header.append(backButton, avatar, copy);
   artistsList.replaceChildren(header, list);
+
+  if (!isFreshArtistInfo(artistInfoCache.get(cacheKeyForArtist(artistName)))) {
+    getArtistInfo(artistName)
+      .then(() => {
+        if (selectedArtistName === artistName) {
+          renderArtistDetail(artistName);
+        }
+      })
+      .catch(() => {});
+  }
 }
 
 function renderFavorites() {
@@ -3299,6 +3602,7 @@ function renderQueue() {
 
 function renderLibrary() {
   renderSongs();
+  renderCollections();
   renderAlbums();
   renderArtists();
   renderFavorites();
@@ -3363,6 +3667,17 @@ async function loadFavorites() {
   }
 }
 
+async function loadCollections() {
+  try {
+    const data = await requestJson('/collections');
+
+    smartCollections = Array.isArray(data.collections) ? data.collections : [];
+    renderCollections();
+  } catch (err) {
+    showToast(`Collections failed: ${err.message}`);
+  }
+}
+
 function loadRecentlyPlayed() {
   refreshRecentlyPlayed();
 }
@@ -3401,9 +3716,10 @@ async function loadAutoScanStatus() {
 
       if (shouldRefreshLibrary) {
         clearArtistInfoCache();
-        await loadTracks(searchInput.value);
-        await loadFavorites();
-        refreshActiveArtistInfo();
+    await loadTracks(searchInput.value);
+    await loadFavorites();
+    await loadCollections();
+    refreshActiveArtistInfo();
       }
     }
   } catch (err) {
@@ -3557,6 +3873,7 @@ async function toggleFavorite(track) {
 
   await loadTracks(searchInput.value);
   await loadFavorites();
+  await loadCollections();
   await loadRecentlyPlayed();
   showToast(shouldFavorite
     ? `Added to favorites: ${track.title}`
@@ -3711,6 +4028,7 @@ setActiveLibraryTab(activeLibraryTab);
 isRestoringPlayer = false;
 loadTracks();
 loadFavorites();
+loadCollections();
 loadRecentlyPlayed();
 loadAutoScanStatus();
 startAutoScanTimer();

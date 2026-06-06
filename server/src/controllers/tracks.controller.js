@@ -1,6 +1,7 @@
 'use strict';
 
 const db = require('../config/database');
+const collectionsService = require('../services/collections.service');
 
 function dbAll(sql, params = []) {
   return new Promise((resolve, reject) => {
@@ -162,11 +163,14 @@ function normalizeTrack(track) {
 
   return {
     ...track,
+    play_count: Number(track.play_count || 0),
     is_favorite: Boolean(track.is_favorite)
   };
 }
 
 async function findTrackById(trackId) {
+  await collectionsService.ensureListeningStatsSchema();
+
   const track = await dbGet(`
     SELECT
       t.id,
@@ -176,6 +180,8 @@ async function findTrackById(trackId) {
       t.file_path,
       t.duration,
       t.created_at,
+      t.play_count,
+      t.last_played_at,
       CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
     FROM tracks t
     LEFT JOIN favorites f ON f.track_id = t.id
@@ -196,6 +202,7 @@ async function listTracks(req, res) {
   }
 
   try {
+    await collectionsService.ensureListeningStatsSchema();
     const { whereSql, params } = buildTrackListQuery(req.query);
     const tracks = await dbAll(`
       SELECT
@@ -206,6 +213,8 @@ async function listTracks(req, res) {
         t.file_path,
         t.duration,
         t.created_at,
+        t.play_count,
+        t.last_played_at,
         CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
       FROM tracks t
       LEFT JOIN favorites f ON f.track_id = t.id
@@ -241,6 +250,7 @@ async function createTrack(req, res) {
   }
 
   try {
+    await collectionsService.ensureListeningStatsSchema();
     const result = await dbRun(`
       INSERT INTO tracks (
         title,
@@ -266,6 +276,8 @@ async function createTrack(req, res) {
         t.file_path,
         t.duration,
         t.created_at,
+        t.play_count,
+        t.last_played_at,
         CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
       FROM tracks t
       LEFT JOIN favorites f ON f.track_id = t.id
@@ -404,8 +416,18 @@ async function recordTrackPlay(req, res) {
       INSERT INTO play_history (track_id)
       VALUES (?)
     `, [trackId]);
+    await collectionsService.ensureListeningStatsSchema();
+    await dbRun(`
+      UPDATE tracks
+      SET
+        play_count = COALESCE(play_count, 0) + 1,
+        last_played_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, [trackId]);
 
-    return res.status(201).json({ track });
+    return res.status(201).json({
+      track: await findTrackById(trackId)
+    });
   } catch (err) {
     return res.status(500).json({
       error: 'Failed to record track play',

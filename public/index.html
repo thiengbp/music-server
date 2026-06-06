@@ -554,6 +554,10 @@
         content: "♡";
       }
 
+      .tab-button[data-library-tab="collections"]::before {
+        content: "◆";
+      }
+
       .tab-button[data-library-tab="recentAdded"]::before {
         content: "◷";
       }
@@ -718,6 +722,17 @@
         justify-self: stretch;
       }
 
+      .meta-link {
+        cursor: pointer;
+        transition: color 180ms ease;
+      }
+
+      .meta-link:hover,
+      .meta-link:focus {
+        color: var(--accent-strong);
+        outline: none;
+      }
+
       .track > .favorite-button {
         grid-column: 8;
         justify-self: center;
@@ -855,6 +870,72 @@
         display: block;
         width: 100%;
         min-width: 0;
+      }
+
+      .detail-hero {
+        display: grid;
+        grid-template-columns: auto 92px minmax(0, 1fr);
+        gap: 16px;
+        align-items: center;
+        margin-bottom: 14px;
+        padding: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.075);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .detail-hero-cover,
+      .artist-detail-avatar {
+        display: grid;
+        place-items: center;
+        width: 92px;
+        height: 92px;
+        overflow: hidden;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.07);
+        color: var(--accent-strong);
+        font-size: 26px;
+        font-weight: 800;
+      }
+
+      .artist-detail-avatar {
+        border-radius: 999px;
+      }
+
+      .detail-hero-cover .group-cover,
+      .artist-detail-avatar img {
+        width: 100%;
+        height: 100%;
+        border-radius: inherit;
+        object-fit: cover;
+      }
+
+      .detail-actions,
+      .artist-detail-sources {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .detail-actions .view-more-button {
+        margin-top: 0;
+      }
+
+      .artist-detail-bio,
+      .artist-detail-stats,
+      .artist-detail-mini-section {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .artist-detail-bio {
+        display: -webkit-box;
+        overflow: hidden;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
       }
 
       .detail-track-grid {
@@ -2087,6 +2168,18 @@
           grid-template-columns: 34px minmax(0, 1fr) auto auto;
         }
 
+        .detail-hero {
+          grid-template-columns: auto minmax(0, 1fr);
+        }
+
+        .detail-hero-cover,
+        .artist-detail-avatar {
+          width: 64px;
+          height: 64px;
+          border-radius: 12px;
+          font-size: 20px;
+        }
+
         .track > .favorite-button {
           grid-column: 3;
         }
@@ -2291,6 +2384,7 @@
               <button class="tab-button" type="button" data-library-tab="albums">Albums</button>
               <button class="tab-button" type="button" data-library-tab="artists">Artists</button>
               <button class="tab-button" type="button" data-library-tab="favorites">Favorites</button>
+              <button class="tab-button" type="button" data-library-tab="collections">Smart Collections</button>
               <button class="tab-button" type="button" data-library-tab="recentAdded">Recently Added</button>
               <button class="tab-button" type="button" data-library-tab="recent">Recently Played</button>
               <button class="tab-button" type="button" data-library-tab="playlists">Playlists</button>
@@ -2300,13 +2394,6 @@
 
           <div class="library-content">
             <section class="library-panel active" data-library-panel="songs">
-              <div class="songs-header-row" aria-hidden="true">
-                <span class="songs-header-title">Song name</span>
-                <span>Artist</span>
-                <span>Album</span>
-                <span>Genre</span>
-                <span>Year</span>
-              </div>
               <div id="track-list" class="track-grid-4"></div>
             </section>
 
@@ -2320,6 +2407,10 @@
 
             <section class="library-panel" data-library-panel="favorites">
               <div id="favorites-list" class="compact-list"></div>
+            </section>
+
+            <section class="library-panel" data-library-panel="collections">
+              <div id="collections-list" class="playlist-view"></div>
             </section>
 
             <section class="library-panel" data-library-panel="recentAdded">
