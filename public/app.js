@@ -45,6 +45,7 @@ const preloadAudio = new Audio();
 preloadAudio.preload = 'auto';
 preloadAudio.muted = true;
 let preloadedTrackId = null;
+let isSeeking = false;
 const shuffleButton = document.getElementById('shuffle-button');
 const previousButton = document.getElementById('previous-button');
 const playButton = document.getElementById('play-button');
@@ -981,7 +982,8 @@ function canonicalPlayerDuration() {
   const audioDur = audioDuration();
   const seekableDur = audioSeekableEnd();
   const apiDur = activeTrackApiDuration();
-  const nextDuration = audioDur || seekableDur || apiDur || 0;
+  const learnedDur = activeTrackId ? positiveFiniteNumber(trackDurationCache.get(activeTrackId)) : null;
+  const nextDuration = audioDur || seekableDur || apiDur || learnedDur || 0;
 
   if (nextDuration > canonicalDuration) {
     canonicalDuration = nextDuration;
@@ -1595,11 +1597,12 @@ async function loadArtistInfoForTrack(track) {
 }
 
 function findTrackById(trackId) {
-  return allTracks.find((track) => track.id === trackId) ||
-    tracks.find((track) => track.id === trackId) ||
-    favoriteTracks.find((track) => track.id === trackId) ||
-    recentTracks.find((track) => track.id === trackId) ||
-    discoveryTracksCache.get(trackId) ||
+  const numericId = Number(trackId);
+  return allTracks.find((track) => track.id === numericId) ||
+    tracks.find((track) => track.id === numericId) ||
+    favoriteTracks.find((track) => track.id === numericId) ||
+    recentTracks.find((track) => track.id === numericId) ||
+    discoveryTracksCache.get(numericId) ||
     null;
 }
 
@@ -1852,11 +1855,22 @@ function updatePlayButton() {
 function updateProgress() {
   const duration = canonicalPlayerDuration();
   const currentTime = Number.isFinite(audioPlayer.currentTime) ? audioPlayer.currentTime : 0;
-  const progressMax = duration > 0 ? duration : currentTime;
 
-  progressInput.max = String(Math.floor(progressMax));
-  progressInput.value = String(Math.min(Math.floor(currentTime), Math.floor(progressMax)));
-  currentTimeLabel.textContent = formatTime(currentTime);
+  if (duration > 0) {
+    progressInput.max = String(Math.floor(duration));
+    if (!isSeeking) {
+      progressInput.value = String(Math.min(Math.floor(currentTime), Math.floor(duration)));
+    }
+  } else {
+    progressInput.max = "100";
+    if (!isSeeking) {
+      progressInput.value = "0";
+    }
+  }
+
+  if (!isSeeking) {
+    currentTimeLabel.textContent = formatTime(currentTime);
+  }
   durationTimeLabel.textContent = formatTime(duration);
   syncTrackDurationLabels();
 }
@@ -4501,7 +4515,13 @@ document.querySelectorAll('[data-library-tab]').forEach((button) => {
 });
 
 progressInput.addEventListener('input', () => {
+  isSeeking = true;
+  currentTimeLabel.textContent = formatTime(Number(progressInput.value));
+});
+
+progressInput.addEventListener('change', () => {
   audioPlayer.currentTime = Number(progressInput.value);
+  isSeeking = false;
   updateProgress();
   savePlayerState();
 });
@@ -4551,6 +4571,20 @@ audioPlayer.addEventListener('ended', () => {
   });
   updateQueueControls();
   updatePlayButton();
+});
+
+audioPlayer.addEventListener('error', () => {
+  console.error('[Hardening] Audio player encountered an error:', audioPlayer.error);
+  showToast('Playback error occurred. Skipping to next track.');
+  playNextTrack({
+    consumeQueue: true
+  });
+  updateQueueControls();
+  updatePlayButton();
+});
+
+preloadAudio.addEventListener('error', () => {
+  console.warn('[Hardening] Preload audio encountered an error (ignoring):', preloadAudio.error);
 });
 
 document.addEventListener('keydown', (event) => {
@@ -4672,7 +4706,7 @@ async function playDiscoveryEndpoint(endpoint, label, buttonEl = null) {
       .map((t) => {
         let track = findTrackById(t.id);
         if (!track) {
-          discoveryTracksCache.set(t.id, t);
+          discoveryTracksCache.set(Number(t.id), t);
           saveDiscoveryTracksCache();
           track = t;
         }
