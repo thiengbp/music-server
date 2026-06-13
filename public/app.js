@@ -51,6 +51,8 @@ const previousButton = document.getElementById('previous-button');
 const playButton = document.getElementById('play-button');
 const nextButton = document.getElementById('next-button');
 const repeatButton = document.getElementById('repeat-button');
+const airplayButton = document.getElementById('airplay-button');
+const castButton = document.getElementById('cast-button');
 const progressInput = document.getElementById('progress-input');
 const currentTimeLabel = document.getElementById('current-time');
 const durationTimeLabel = document.getElementById('duration-time');
@@ -1873,6 +1875,7 @@ function updateProgress() {
   }
   durationTimeLabel.textContent = formatTime(duration);
   syncTrackDurationLabels();
+  updateMediaSessionPosition();
 }
 
 function syncActiveTrack() {
@@ -1941,6 +1944,7 @@ function loadTrackIntoPlayer(track) {
   audioPlayer.src = `/stream/${track.id}`;
   updateProgress();
   preloadNextTrack();
+  updateMediaSession(track);
 }
 
 function updateTrackInMemory(updatedTrack) {
@@ -4549,10 +4553,16 @@ audioPlayer.addEventListener('timeupdate', () => {
 audioPlayer.addEventListener('play', () => {
   updatePlayButton();
   savePlayerState();
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.playbackState = 'playing';
+  }
 });
 audioPlayer.addEventListener('pause', () => {
   updatePlayButton();
   savePlayerState();
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.playbackState = 'paused';
+  }
 });
 audioPlayer.addEventListener('volumechange', () => {
   volumeInput.value = String(audioPlayer.volume);
@@ -4669,6 +4679,9 @@ loadRecentlyPlayed();
 loadAutoScanStatus();
 startAutoScanTimer();
 setInterval(loadAutoScanStatus, 30000);
+initMediaSessionPlaybackHandlers();
+initAirPlay();
+initCastSupport();
 
 // ---------------------------------------------------------------------------
 // v3.2 Discovery Engine
@@ -4808,5 +4821,126 @@ async function loadSimilarArtistsInto(artistName, container) {
     if (container.isConnected) {
       container.remove();
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// v3.5 Remote Playback: AirPlay & Cast Foundation
+// ---------------------------------------------------------------------------
+
+function updateMediaSession(track) {
+  if (!('mediaSession' in navigator)) {
+    return;
+  }
+
+  const artistName = formatArtist(track);
+  const albumName = formatAlbum(track);
+  const artworkUrl = `/tracks/${track.id}/cover?v=${COVER_URL_VERSION}`;
+
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: track.title,
+    artist: artistName,
+    album: albumName,
+    artwork: [
+      { src: artworkUrl, sizes: '96x96', type: 'image/png' },
+      { src: artworkUrl, sizes: '128x128', type: 'image/png' },
+      { src: artworkUrl, sizes: '192x192', type: 'image/png' },
+      { src: artworkUrl, sizes: '256x256', type: 'image/png' },
+      { src: artworkUrl, sizes: '384x384', type: 'image/png' },
+      { src: artworkUrl, sizes: '512x512', type: 'image/png' }
+    ]
+  });
+}
+
+function updateMediaSessionPosition() {
+  if (!('mediaSession' in navigator) || !('setPositionState' in navigator.mediaSession)) {
+    return;
+  }
+
+  const duration = audioPlayer.duration;
+  const currentTime = audioPlayer.currentTime;
+
+  if (Number.isFinite(duration) && Number.isFinite(currentTime) && duration > 0) {
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: duration,
+        playbackRate: audioPlayer.playbackRate || 1,
+        position: currentTime
+      });
+    } catch (err) {
+      // Ignore errors when setting position state
+    }
+  }
+}
+
+function initMediaSessionPlaybackHandlers() {
+  if (!('mediaSession' in navigator)) {
+    return;
+  }
+
+  navigator.mediaSession.setActionHandler('play', () => {
+    if (audioPlayer.paused) {
+      togglePlayPause();
+    }
+  });
+
+  navigator.mediaSession.setActionHandler('pause', () => {
+    if (!audioPlayer.paused) {
+      togglePlayPause();
+    }
+  });
+
+  navigator.mediaSession.setActionHandler('previoustrack', () => {
+    playPreviousTrack();
+  });
+
+  navigator.mediaSession.setActionHandler('nexttrack', () => {
+    playNextTrack();
+  });
+
+  try {
+    navigator.mediaSession.setActionHandler('seekto', (details) => {
+      if (details.fastSeek && 'fastSeek' in audioPlayer) {
+        audioPlayer.fastSeek(details.seekTime);
+      } else {
+        audioPlayer.currentTime = details.seekTime;
+      }
+      updateProgress();
+      savePlayerState();
+    });
+  } catch (err) {
+    // browser might not support seekto
+  }
+}
+
+function initAirPlay() {
+  if (!window.WebKitPlaybackTargetAvailabilityEvent || !airplayButton) {
+    return;
+  }
+
+  audioPlayer.addEventListener('webkitplaybacktargetavailabilitychanged', (event) => {
+    if (event.availability === 'available') {
+      airplayButton.hidden = false;
+    } else {
+      airplayButton.hidden = true;
+    }
+  });
+
+  airplayButton.addEventListener('click', () => {
+    audioPlayer.webkitShowPlaybackTargetPicker();
+  });
+}
+
+function initCastSupport() {
+  // Google Cast SDK integration TODO for Phase 3.5.1
+  // - Require CDN SDK script: https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1
+  // - Require HTTPS on public domain, or HTTP on localhost (127.0.0.1)
+  // - Chromecast must be connected to the machine LAN IP (e.g. 192.168.1.x:3000)
+  // - Default Receiver APP ID (DEFAULT_MEDIA_RECEIVER_APP_ID) is sufficient.
+  console.log('[Cast] Chromecast foundation initialized. Ready for SDK implementation in Phase 3.5.1.');
+  
+  // Cast button remains hidden until SDK is fully initialized in Phase 3.5.1.
+  if (castButton) {
+    castButton.hidden = true;
   }
 }

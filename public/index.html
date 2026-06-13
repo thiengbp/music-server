@@ -2830,6 +2830,21 @@
                 <button id="play-button" class="control-button primary" type="button" aria-label="Play">▶</button>
                 <button id="next-button" class="control-button" type="button" aria-label="Next track" disabled>›</button>
                 <button id="repeat-button" class="control-button secondary" type="button" aria-label="Repeat off" aria-pressed="false">↻</button>
+                <button id="airplay-button" class="control-button secondary remote-btn" type="button" aria-label="AirPlay" title="AirPlay" hidden>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display: block;">
+                    <path d="M5 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-1"></path>
+                    <polygon points="12 15 17 21 7 21 12 15"></polygon>
+                  </svg>
+                </button>
+                <button id="cast-button" class="control-button secondary remote-btn" type="button" aria-label="Google Cast" title="Google Cast" hidden>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: block;">
+                    <path d="M2 17a5 5 0 0 1 5 5"></path>
+                    <path d="M2 13a9 9 0 0 1 9 9"></path>
+                    <path d="M2 9a13 13 0 0 1 13 13"></path>
+                    <path d="M2 5h18a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-6"></path>
+                    <path d="M2 5v3"></path>
+                  </svg>
+                </button>
               </div>
               <div class="progress-row">
                 <span id="current-time" class="time-label">0:00</span>
@@ -2843,7 +2858,7 @@
               <input id="volume-input" class="range-input" type="range" min="0" max="1" value="1" step="0.01" aria-label="Volume">
             </div>
 
-            <audio id="audio-player" preload="metadata"></audio>
+            <audio id="audio-player" preload="metadata" x-webkit-airplay="allow"></audio>
           </div>
         </section>
 
