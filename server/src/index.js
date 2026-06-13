@@ -14,6 +14,7 @@ const queueRoutes = require('./routes/queue.routes');
 const recentlyRoutes = require('./routes/recently.routes');
 const streamRoutes = require('./routes/stream.routes');
 const tracksRoutes = require('./routes/tracks.routes');
+const discoveryRoutes = require('./routes/discovery.routes');
 const libraryService = require('./services/library.service');
 
 const app = express();
@@ -58,6 +59,7 @@ app.use('/playlists', playlistsRoutes);
 app.use('/queue', queueRoutes);
 app.use('/recently-played', recentlyRoutes);
 app.use('/stream', streamRoutes);
+app.use('/discovery', discoveryRoutes);
 
 let isShuttingDown = false;
 let shouldForceExit = false;

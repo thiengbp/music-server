@@ -30,6 +30,7 @@ const collectionsList = document.getElementById('collections-list');
 const recentlyAddedList = document.getElementById('recently-added-list');
 const recentlyList = document.getElementById('recently-list');
 const playlistsList = document.getElementById('playlists-list');
+const mixesList = document.getElementById('mixes-list');
 const queueList = document.getElementById('queue-list');
 const statusMessage = document.getElementById('status');
 const toastContainer = document.getElementById('toast-container');
@@ -137,6 +138,8 @@ let lastSearchResultIds = '';
 let libraryDataVersion = 0;
 const albumDetailCache = new Map();
 const artistDetailViewCache = new Map();
+const similarArtistsCache = new Map();
+let currentArtistDetailRefs = null;
 const coverObjectUrlCache = new Map();
 const coverObserver = 'IntersectionObserver' in window
   ? new IntersectionObserver((entries) => {
@@ -477,6 +480,7 @@ function normalizePlayerState(value) {
     'recentAdded',
     'recent',
     'playlists',
+    'mixes',
     'queue'
   ]);
   const volume = Number(value.volume);
@@ -638,7 +642,6 @@ async function loadQueueFromApi() {
       isShuffleEnabled = queue.shuffleEnabled;
     }
     writeStoredArray(QUEUE_STORAGE_KEY, queueTrackIds);
-    savePlayerState();
   } catch (err) {
     showToast(`Queue restore failed: ${err.message}`);
   }
@@ -1039,6 +1042,8 @@ function invalidateLibraryViewCaches() {
   libraryDataVersion += 1;
   albumDetailCache.clear();
   artistDetailViewCache.clear();
+  similarArtistsCache.clear();
+  currentArtistDetailRefs = null;
   songsVirtualRange = {
     start: -1,
     end: -1,
@@ -2540,6 +2545,7 @@ function renderActionMenu(track, options = {}) {
   const playNowButton = document.createElement('button');
   const addToQueueButton = document.createElement('button');
   const playNextButton = document.createElement('button');
+  const trackRadioButton = document.createElement('button');
   const addToPlaylist = document.createElement('button');
   const copyInfo = document.createElement('button');
   const removeFromPlaylist = document.createElement('button');
@@ -2585,6 +2591,17 @@ function renderActionMenu(track, options = {}) {
     event.stopPropagation();
     closeActionMenus();
     playNext(track);
+  });
+
+  trackRadioButton.type = 'button';
+  trackRadioButton.textContent = 'Start track radio';
+  trackRadioButton.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    closeActionMenus();
+    await playDiscoveryEndpoint(
+      `/discovery/track-radio/${track.id}?limit=50`,
+      `Track Radio: ${track.title}`
+    );
   });
 
   addToPlaylist.type = 'button';
@@ -2656,6 +2673,7 @@ function renderActionMenu(track, options = {}) {
     playNowButton,
     addToQueueButton,
     playNextButton,
+    trackRadioButton,
     addToPlaylist,
     ...playlists.map((playlist) => {
       const playlistButton = document.createElement('button');
@@ -2706,6 +2724,7 @@ function renderTrack(track, options = {}) {
   track = hydrateTrack(track);
 
   const button = document.createElement('div');
+  const num = document.createElement('span');
   const details = document.createElement('span');
   const title = document.createElement('span');
   const artist = document.createElement('span');
@@ -2720,6 +2739,8 @@ function renderTrack(track, options = {}) {
   button.dataset.trackId = String(track.id);
   button.classList.toggle('active', track.id === activeTrackId);
 
+  num.className = 'track-num';
+  num.textContent = options.index != null ? String(options.index) : '';
   details.className = 'track-info';
   title.className = 'title';
   artist.className = 'meta';
@@ -2766,6 +2787,7 @@ function renderTrack(track, options = {}) {
     }
   });
   button.append(
+    num,
     renderCover(track, 'thumbnail'),
     details,
     renderFavoriteButton(track),
@@ -2814,6 +2836,7 @@ function renderDetailTrackRow(track, options = {}) {
   track = hydrateTrack(track);
 
   const row = document.createElement('div');
+  const num = document.createElement('span');
   const details = document.createElement('span');
   const title = document.createElement('span');
   const artist = document.createElement('span');
@@ -2826,6 +2849,8 @@ function renderDetailTrackRow(track, options = {}) {
   row.dataset.trackId = String(track.id);
   row.classList.toggle('active', track.id === activeTrackId);
 
+  num.className = 'detail-track-num';
+  num.textContent = options.index != null ? String(options.index) : '';
   details.className = 'detail-track-info';
   title.className = 'detail-track-title';
   artist.className = 'detail-track-meta';
@@ -2854,6 +2879,7 @@ function renderDetailTrackRow(track, options = {}) {
     viewTrackAlbum(track);
   });
   row.append(
+    num,
     renderCover(track, 'detail-cover'),
     details,
     duration,
@@ -2885,6 +2911,7 @@ function renderDetailTrackRow(track, options = {}) {
 
 function renderQueueItem(track, index) {
   const item = document.createElement('div');
+  const num = document.createElement('span');
   const title = document.createElement('span');
   const artist = document.createElement('span');
   const album = document.createElement('span');
@@ -2899,6 +2926,8 @@ function renderQueueItem(track, index) {
   item.dataset.trackId = String(track.id);
   item.setAttribute('aria-label', `Play ${track.title}`);
 
+  num.className = 'queue-num';
+  num.textContent = String(index + 1);
   title.className = 'queue-name';
   artist.className = 'queue-artist';
   album.className = 'queue-album';
@@ -2930,7 +2959,7 @@ function renderQueueItem(track, index) {
     viewTrackAlbum(track);
   });
 
-  item.append(renderCover(track, 'queue-cover'), title, artist, album, duration, actions);
+  item.append(num, renderCover(track, 'queue-cover'), title, artist, album, duration, actions);
   item.addEventListener('click', () => playQueueAt(index));
   item.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
@@ -2944,6 +2973,7 @@ function renderQueueItem(track, index) {
 
 function renderQueueNowPlaying(track) {
   const item = document.createElement('div');
+  const num = document.createElement('span');
   const title = document.createElement('span');
   const artist = document.createElement('span');
   const album = document.createElement('span');
@@ -2951,6 +2981,8 @@ function renderQueueNowPlaying(track) {
   const spacer = document.createElement('span');
 
   item.className = 'queue-item queue-now-playing active';
+  num.className = 'queue-num';
+  num.textContent = '▶';
   title.className = 'queue-name';
   artist.className = 'queue-artist';
   album.className = 'queue-album';
@@ -2962,13 +2994,14 @@ function renderQueueNowPlaying(track) {
   album.textContent = formatAlbum(track);
   duration.textContent = formatTrackDuration(track);
 
-  item.append(renderCover(track, 'queue-cover'), title, artist, album, duration, spacer);
+  item.append(num, renderCover(track, 'queue-cover'), title, artist, album, duration, spacer);
 
   return item;
 }
 
 function renderTrackHeaderRow() {
   const header = document.createElement('div');
+  const num = document.createElement('span');
   const title = document.createElement('span');
   const artist = document.createElement('span');
   const album = document.createElement('span');
@@ -2977,19 +3010,21 @@ function renderTrackHeaderRow() {
 
   header.className = 'songs-header-row track-header-row';
   header.setAttribute('aria-hidden', 'true');
+  num.textContent = '#';
   title.className = 'songs-header-title';
-  title.textContent = 'Song name';
+  title.textContent = 'Title';
   artist.textContent = 'Artist';
   album.textContent = 'Album';
   genre.textContent = 'Genre';
   year.textContent = 'Year';
-  header.append(title, artist, album, genre, year);
+  header.append(num, title, artist, album, genre, year);
 
   return header;
 }
 
 function renderDetailTrackHeaderRow() {
   const header = document.createElement('div');
+  const num = document.createElement('span');
   const title = document.createElement('span');
   const artist = document.createElement('span');
   const album = document.createElement('span');
@@ -2998,21 +3033,23 @@ function renderDetailTrackHeaderRow() {
 
   header.className = 'detail-track-header-row';
   header.setAttribute('aria-hidden', 'true');
+  num.textContent = '#';
   title.className = 'detail-track-header-title';
   duration.className = 'detail-track-header-duration';
   actions.className = 'detail-track-header-actions';
-  title.textContent = 'Song name';
+  title.textContent = 'Title';
   artist.textContent = 'Artist';
   album.textContent = 'Album';
   duration.textContent = 'Duration';
   actions.textContent = 'Actions';
-  header.append(title, artist, album, duration, actions);
+  header.append(num, title, artist, album, duration, actions);
 
   return header;
 }
 
 function renderQueueHeaderRow() {
   const header = document.createElement('div');
+  const num = document.createElement('span');
   const title = document.createElement('span');
   const artist = document.createElement('span');
   const album = document.createElement('span');
@@ -3021,13 +3058,14 @@ function renderQueueHeaderRow() {
 
   header.className = 'queue-header-row';
   header.setAttribute('aria-hidden', 'true');
+  num.textContent = '#';
   title.className = 'queue-header-title';
-  title.textContent = 'Song name';
+  title.textContent = 'Title';
   artist.textContent = 'Artist';
   album.textContent = 'Album';
   duration.textContent = 'Duration';
   actions.textContent = 'Actions';
-  header.append(title, artist, album, duration, actions);
+  header.append(num, title, artist, album, duration, actions);
 
   return header;
 }
@@ -3205,8 +3243,9 @@ function updateSongsVirtualRows(force = false) {
   };
   inner.style.transform = `translateY(${start * SONG_ROW_HEIGHT}px)`;
   inner.replaceChildren(
-    ...visibleTracks.map((track) => renderTrack(track, {
-      onClick: () => playTrackFromContext(track, contextType, contextId, tracks)
+    ...visibleTracks.map((track, i) => renderTrack(track, {
+      onClick: () => playTrackFromContext(track, contextType, contextId, tracks),
+      index: start + i + 1
     }))
   );
   syncActiveTrack();
@@ -3321,8 +3360,9 @@ function renderCollectionDetail(collection) {
   list.append(
     renderTrackHeaderRow(),
     ...(collectionTracks.length > 0
-      ? collectionTracks.map((track) => renderTrack(track, {
-        onClick: () => playTrackFromContext(track, `collection:${collection.id}`, collection.id, collectionTracks)
+      ? collectionTracks.map((track, i) => renderTrack(track, {
+        onClick: () => playTrackFromContext(track, `collection:${collection.id}`, collection.id, collectionTracks),
+        index: i + 1
       }))
       : [renderEmptyState('No tracks yet')])
   );
@@ -3370,6 +3410,7 @@ function renderAlbumDetail(albumName) {
   const actions = document.createElement('div');
   const playButton = document.createElement('button');
   const queueButton = document.createElement('button');
+  const radioButton = document.createElement('button');
   const list = document.createElement('div');
   const coverTrack = albumDetail.coverTrack;
   const albumArtist = albumDetail.artist;
@@ -3412,14 +3453,24 @@ function renderAlbumDetail(albumName) {
   queueButton.textContent = 'Add album to queue';
   queueButton.disabled = albumTracks.length === 0;
   queueButton.addEventListener('click', () => addTracksToQueue(albumTracks, 'Added album to queue'));
-  actions.append(playButton, queueButton);
+  radioButton.type = 'button';
+  radioButton.className = 'view-more-button';
+  radioButton.textContent = 'Album Radio';
+  radioButton.disabled = albumTracks.length === 0;
+  radioButton.addEventListener('click', () => playDiscoveryEndpoint(
+    `/discovery/album-radio?album=${encodeURIComponent(albumName)}&artist=${encodeURIComponent(albumArtist)}&limit=50`,
+    `Album Radio: ${albumName}`,
+    radioButton
+  ));
+  actions.append(playButton, queueButton, radioButton);
   copy.append(title, meta, actions);
 
   list.className = 'detail-track-grid album-detail-list';
   list.append(
     renderDetailTrackHeaderRow(),
-    ...albumTracks.map((track) => renderDetailTrackRow(track, {
-      onClick: () => playTrackFromContext(track, 'album', albumName, albumTracks)
+    ...albumTracks.map((track, i) => renderDetailTrackRow(track, {
+      onClick: () => playTrackFromContext(track, 'album', albumName, albumTracks),
+      index: i + 1
     }))
   );
 
@@ -3472,7 +3523,10 @@ function renderArtistDetail(artistName) {
   const stats = document.createElement('div');
   const albums = document.createElement('div');
   const popular = document.createElement('div');
+  const actions = document.createElement('div');
+  const radioButton = document.createElement('button');
   const list = document.createElement('div');
+  const similarSection = document.createElement('div');
 
   artistsList.className = 'detail-view';
   header.className = 'detail-header detail-hero artist-detail-header';
@@ -3503,7 +3557,10 @@ function renderArtistDetail(artistName) {
     avatarImage.addEventListener('load', () => {
       avatar.textContent = '';
       avatar.append(avatarImage);
-    });
+    }, { once: true });
+    avatarImage.addEventListener('error', () => {
+      avatar.textContent = artistInitials(artistName);
+    }, { once: true });
   }
   bio.className = 'artist-detail-bio';
   bio.textContent = normalizeArtistDescription(cachedInfo.bio)
@@ -3517,27 +3574,104 @@ function renderArtistDetail(artistName) {
   albums.textContent = `Albums: ${artistAlbums.slice(0, 4).map((album) => album.name).join(' · ') || 'N/A'}`;
   popular.className = 'artist-detail-mini-section';
   popular.textContent = `Popular Tracks: ${(popularTracks || []).slice(0, 3).map((track) => track.title).join(' · ') || 'N/A'}`;
-  copy.append(title, meta, bio, sources, stats, albums, popular);
+  actions.className = 'detail-actions';
+  radioButton.type = 'button';
+  radioButton.className = 'artist-radio-btn';
+  radioButton.title = 'Play a radio mix seeded from this artist';
+  const arbIcon = document.createElement('span');
+  arbIcon.className = 'arb-icon';
+  arbIcon.textContent = '▶';
+  const arbLabel = document.createElement('span');
+  arbLabel.textContent = 'Artist Radio';
+  radioButton.replaceChildren(arbIcon, arbLabel);
+  radioButton.addEventListener('click', () => playArtistRadio(artistName, radioButton));
+  actions.append(radioButton);
+
+  copy.append(title, meta, bio, sources, stats, albums, popular, actions);
 
   list.className = 'detail-track-grid artist-detail-list';
   list.append(
     renderDetailTrackHeaderRow(),
-    ...artistTracks.map((track) => renderDetailTrackRow(track, {
-      onClick: () => playTrackFromContext(track, 'artist', artistName, artistTracks)
+    ...artistTracks.map((track, i) => renderDetailTrackRow(track, {
+      onClick: () => playTrackFromContext(track, 'artist', artistName, artistTracks),
+      index: i + 1
     }))
   );
 
+  similarSection.className = 'discovery-similar-section';
+  if (!similarArtistsCache.has(artistName)) {
+    const loadingMsg = document.createElement('p');
+    loadingMsg.className = 'discovery-similar-loading';
+    loadingMsg.textContent = 'Loading similar artists…';
+    similarSection.append(loadingMsg);
+  }
+
+  // Store refs for surgical patching when artist info loads asynchronously
+  currentArtistDetailRefs = {
+    artistName,
+    artistTracks,
+    artistAlbums,
+    avatar,
+    avatarImage,
+    meta,
+    bio,
+    sources,
+    stats,
+    popular
+  };
+
   header.append(backButton, avatar, copy);
-  artistsList.replaceChildren(header, list);
+  artistsList.replaceChildren(header, list, similarSection);
+
+  loadSimilarArtistsInto(artistName, similarSection);
 
   if (!isFreshArtistInfo(artistInfoCache.get(cacheKeyForArtist(artistName)))) {
     getArtistInfo(artistName)
       .then(() => {
         if (selectedArtistName === artistName) {
-          renderArtistDetail(artistName);
+          patchArtistDetailInfo(artistName);
         }
       })
       .catch(() => {});
+  }
+}
+
+function patchArtistDetailInfo(artistName) {
+  const refs = currentArtistDetailRefs;
+
+  if (!refs || refs.artistName !== artistName) {
+    return;
+  }
+
+  const cachedInfo = artistInfoCache.get(cacheKeyForArtist(artistName)) || localArtistInfoFallback(artistName);
+  const popularTracks = cachedInfo.popularTracks?.length > 0
+    ? cachedInfo.popularTracks
+    : cachedInfo.topTracks;
+
+  refs.meta.textContent = [
+    formatTrackCount(refs.artistTracks.length),
+    `${refs.artistAlbums.length} ${refs.artistAlbums.length === 1 ? 'album' : 'albums'}`,
+    cachedInfo.listeners ? `Listeners ${formatCompactNumber(cachedInfo.listeners)}` : null,
+    cachedInfo.playcount ? `Playcount ${formatCompactNumber(cachedInfo.playcount)}` : null
+  ].filter(Boolean).join(' · ');
+
+  refs.bio.textContent = normalizeArtistDescription(cachedInfo.bio)
+    || normalizeArtistDescription(cachedInfo.disambiguation)
+    || (cachedInfo.area ? `Area: ${cachedInfo.area}` : 'Additional artist information is unavailable.');
+
+  refs.sources.replaceChildren(...sourceBadgeElements(cachedInfo));
+
+  refs.stats.textContent = `Tracks ${refs.artistTracks.length} · Albums ${refs.artistAlbums.length} · Country ${formatCountryName(cachedInfo.country)}`;
+
+  refs.popular.textContent = `Popular Tracks: ${(popularTracks || []).slice(0, 3).map((t) => t.title).join(' · ') || 'N/A'}`;
+
+  if (cachedInfo.image && !refs.avatar.querySelector('img')) {
+    refs.avatarImage.alt = '';
+    refs.avatarImage.src = cachedInfo.image;
+    refs.avatarImage.addEventListener('load', () => {
+      refs.avatar.textContent = '';
+      refs.avatar.append(refs.avatarImage);
+    }, { once: true });
   }
 }
 
@@ -3552,8 +3686,9 @@ function renderFavorites() {
 
   favoritesList.replaceChildren(
     renderTrackHeaderRow(),
-    ...favoriteTracks.map((track) => renderTrack(track, {
-      onClick: () => playTrackFromContext(track, 'favorites', null, favoriteTracks)
+    ...favoriteTracks.map((track, i) => renderTrack(track, {
+      onClick: () => playTrackFromContext(track, 'favorites', null, favoriteTracks),
+      index: i + 1
     }))
   );
 }
@@ -3563,8 +3698,9 @@ function renderRecentlyAdded() {
   recentlyAddedList.replaceChildren(
     renderTrackHeaderRow(),
     ...(items.length > 0
-      ? items.map((track) => renderTrack(track, {
-        onClick: () => playTrackFromContext(track, 'recentAdded', null, items)
+      ? items.map((track, i) => renderTrack(track, {
+        onClick: () => playTrackFromContext(track, 'recentAdded', null, items),
+        index: i + 1
       }))
       : [renderEmptyState('No recently added tracks')])
   );
@@ -3574,8 +3710,9 @@ function renderRecentlyPlayed() {
   recentlyList.replaceChildren(
     renderTrackHeaderRow(),
     ...(recentTracks.length > 0
-      ? recentTracks.map((track) => renderTrack(track, {
-        onClick: () => playTrackFromContext(track, 'recent', null, recentTracks)
+      ? recentTracks.map((track, i) => renderTrack(track, {
+        onClick: () => playTrackFromContext(track, 'recent', null, recentTracks),
+        index: i + 1
       }))
       : [renderEmptyState('No recently played tracks')])
   );
@@ -3758,7 +3895,8 @@ function renderPlaylistDetail(playlistId) {
 function renderPlaylistTrackRow(track, playlistId, playlistItems = [], index = 0) {
   const row = renderDetailTrackRow(track, {
     playlistId,
-    onClick: () => playTrackFromContext(track, 'playlist', playlistId, playlistItems)
+    onClick: () => playTrackFromContext(track, 'playlist', playlistId, playlistItems),
+    index: index + 1
   });
   const actions = document.createElement('span');
 
@@ -3832,6 +3970,59 @@ function renderQueue() {
   queueList.replaceChildren(...queueSections);
 }
 
+function renderMixes() {
+  const mixes = [
+    {
+      title: 'Auto Mix',
+      description: 'Favorites, most played, and recently played.',
+      endpoint: '/discovery/auto-mix?limit=50'
+    },
+    {
+      title: 'Daily Mix',
+      description: 'A fresh mix based on your recent listening.',
+      endpoint: '/discovery/daily-mix?limit=50'
+    },
+    {
+      title: 'Because You Played',
+      description: 'Continue from your latest listening session.',
+      endpoint: '/discovery/because-you-played?limit=50'
+    }
+  ];
+  const intro = document.createElement('div');
+  const title = document.createElement('h3');
+  const description = document.createElement('p');
+  const grid = document.createElement('div');
+
+  intro.className = 'mixes-intro';
+  title.className = 'detail-title';
+  title.textContent = 'Made for your library';
+  description.className = 'detail-meta';
+  description.textContent = 'Local-first mixes built from favorites and listening history.';
+  intro.append(title, description);
+  grid.className = 'mixes-grid';
+
+  mixes.forEach((mix) => {
+    const card = document.createElement('article');
+    const cardTitle = document.createElement('h4');
+    const cardDescription = document.createElement('p');
+    const playButton = document.createElement('button');
+
+    card.className = 'mix-card';
+    cardTitle.textContent = mix.title;
+    cardDescription.textContent = mix.description;
+    playButton.type = 'button';
+    playButton.className = 'view-more-button';
+    playButton.textContent = 'Play mix';
+    playButton.addEventListener('click', () => (
+      playDiscoveryEndpoint(mix.endpoint, mix.title, playButton)
+    ));
+    card.append(cardTitle, cardDescription, playButton);
+    grid.append(card);
+  });
+
+  mixesList.replaceChildren(intro, grid);
+}
+
 function renderActiveLibraryPanel() {
   if (activeLibraryTab === 'songs') {
     renderSongs();
@@ -3849,6 +4040,8 @@ function renderActiveLibraryPanel() {
     renderRecentlyPlayed();
   } else if (activeLibraryTab === 'playlists') {
     renderPlaylists();
+  } else if (activeLibraryTab === 'mixes') {
+    renderMixes();
   } else if (activeLibraryTab === 'queue') {
     renderQueue();
   }
@@ -4314,3 +4507,116 @@ loadRecentlyPlayed();
 loadAutoScanStatus();
 startAutoScanTimer();
 setInterval(loadAutoScanStatus, 30000);
+
+// ---------------------------------------------------------------------------
+// v3.2 Discovery Engine
+// ---------------------------------------------------------------------------
+
+async function playDiscoveryEndpoint(endpoint, label, buttonEl = null) {
+  if (buttonEl) {
+    buttonEl.classList.add('is-loading');
+    buttonEl.disabled = true;
+  }
+
+  try {
+    const data = await requestJson(endpoint);
+    const mixTracks = (data.tracks || [])
+      .map((t) => findTrackById(t.id))
+      .filter(Boolean);
+
+    if (!mixTracks.length) {
+      showToast(`${label} has no matching tracks`);
+      return;
+    }
+
+    const [firstTrack, ...upNextTracks] = mixTracks;
+
+    queueTrackIds = upNextTracks.map((track) => track.id);
+    queueActiveIndex = -1;
+    queueHistory = [];
+    setPlaybackContext(data.type || 'discovery', label, [firstTrack], firstTrack.id);
+    saveQueue();
+    playTrackAt(0);
+    renderQueue();
+    showToast(`${label} · ${mixTracks.length} tracks`);
+  } catch (err) {
+    console.error(`${label} failed:`, err);
+    showToast(`${label} unavailable`);
+  } finally {
+    if (buttonEl) {
+      buttonEl.classList.remove('is-loading');
+      buttonEl.disabled = false;
+    }
+  }
+}
+
+async function playArtistRadio(artistName, buttonEl) {
+  return playDiscoveryEndpoint(
+    `/discovery/artist-radio/${encodeURIComponent(artistName)}?limit=50`,
+    `Artist Radio: ${artistName}`,
+    buttonEl
+  );
+}
+
+function renderSimilarArtistsChips(artists, container) {
+  if (!artists.length) {
+    if (container.isConnected) {
+      container.remove();
+    }
+    return;
+  }
+
+  const grid = document.createElement('div');
+  grid.className = 'discovery-similar-grid';
+
+  artists.forEach((a) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'discovery-similar-chip';
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = a.name;
+    const countSpan = document.createElement('span');
+    countSpan.className = 'chip-count';
+    countSpan.textContent = `${a.trackCount} track${a.trackCount !== 1 ? 's' : ''}`;
+    chip.append(nameSpan, countSpan);
+    chip.addEventListener('click', () => {
+      selectedArtistName = a.name;
+      renderArtists();
+    });
+    grid.append(chip);
+  });
+
+  container.replaceChildren(
+    Object.assign(document.createElement('h4'), { textContent: 'Similar Artists' }),
+    grid
+  );
+}
+
+async function loadSimilarArtistsInto(artistName, container) {
+  // Cache hit — render immediately, no loading state, no fetch
+  if (similarArtistsCache.has(artistName)) {
+    renderSimilarArtistsChips(similarArtistsCache.get(artistName), container);
+    return;
+  }
+
+  try {
+    const response = await fetch(`/discovery/similar-artists/${encodeURIComponent(artistName)}?limit=10`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    const artists = data.artists || [];
+
+    similarArtistsCache.set(artistName, artists);
+
+    // Guard: container may have been replaced if user navigated away during fetch
+    if (!container.isConnected) {
+      return;
+    }
+
+    renderSimilarArtistsChips(artists, container);
+  } catch (err) {
+    console.error('Similar artists fetch failed:', err);
+    if (container.isConnected) {
+      container.remove();
+    }
+  }
+}
