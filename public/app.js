@@ -1955,6 +1955,19 @@ function moveQueueItem(index, direction) {
   updateQueueControls();
 }
 
+function moveQueueItemToTop(index) {
+  if (index <= 0 || index >= queueTrackIds.length) {
+    return;
+  }
+
+  const trackId = queueTrackIds.splice(index, 1)[0];
+  queueTrackIds.unshift(trackId);
+  saveQueue();
+  renderQueue();
+  updateQueueControls();
+  showToast('Moved to play next');
+}
+
 async function clearQueue() {
   queueTrackIds = [];
   queueActiveIndex = -1;
@@ -2925,11 +2938,9 @@ function renderQueueItem(track, index) {
   duration.textContent = formatTrackDuration(track);
 
   actions.append(
-    renderRowControlButton('↑', `Move ${track.title} up`, () => moveQueueItem(index, -1), {
+    renderRowControlButton('▶', `Play ${track.title} now`, () => playQueueAt(index)),
+    renderRowControlButton('↷', `Play ${track.title} next`, () => moveQueueItemToTop(index), {
       disabled: index === 0
-    }),
-    renderRowControlButton('↓', `Move ${track.title} down`, () => moveQueueItem(index, 1), {
-      disabled: index === queueTrackIds.length - 1
     }),
     renderRowControlButton('×', `Remove ${track.title} from queue`, () => removeFromQueue(index))
   );
@@ -3974,57 +3985,62 @@ function renderQueue() {
   toolbar.append(heading, clearButton);
   queueSections.push(toolbar);
 
-  // Lịch sử phát (loại trừ bài hiện tại là phần tử cuối trong queueHistory)
+  // --- 1. Recently Played Section ---
   const historyEntries = queueHistory.slice(0, -1);
   const historyTracks = historyEntries
     .map((entry) => findTrackById(entry.trackId))
     .filter(Boolean)
     .slice(-5); // Lấy tối đa 5 bài gần nhất
 
+  const historySection = document.createElement('div');
+  historySection.className = 'queue-section queue-history-section';
+  const historyLabel = document.createElement('span');
+  historyLabel.className = 'queue-section-label';
+  historyLabel.textContent = 'Recently played';
+  const historyList = document.createElement('div');
+  historyList.className = 'queue-items queue-history-items';
+  
   if (historyTracks.length > 0) {
-    const historySection = document.createElement('div');
-    const label = document.createElement('span');
-    const list = document.createElement('div');
-
-    historySection.className = 'queue-section queue-history-section';
-    label.className = 'queue-section-label';
-    label.textContent = 'Recently played';
-    list.className = 'queue-items queue-history-items';
-    list.append(renderQueueHeaderRow(), ...historyTracks.map((t, idx) => renderQueueHistoryItem(t, idx)));
-    historySection.append(label, list);
-    queueSections.push(historySection);
-  }
-
-  if (activeTrack) {
-    const current = document.createElement('div');
-    const label = document.createElement('span');
-    const row = renderQueueNowPlaying(activeTrack);
-
-    current.className = 'queue-section';
-    label.className = 'queue-section-label';
-    label.textContent = 'Now playing';
-    current.append(label, row);
-    queueSections.push(current);
-  }
-
-  if (queueItems.length === 0) {
-    queueSections.push(
-      renderQueueHeaderRow(),
-      renderEmptyState('Queue is empty', 'Add songs with Play Next or Add to Queue.')
-    );
+    historyList.append(renderQueueHeaderRow(), ...historyTracks.map((t, idx) => renderQueueHistoryItem(t, idx)));
   } else {
-    const upNext = document.createElement('div');
-    const label = document.createElement('span');
-    const list = document.createElement('div');
-
-    upNext.className = 'queue-section';
-    label.className = 'queue-section-label';
-    label.textContent = 'Up next';
-    list.className = 'queue-items';
-    list.append(renderQueueHeaderRow(), ...queueItems.map(renderQueueItem));
-    upNext.append(label, list);
-    queueSections.push(upNext);
+    historyList.append(renderEmptyState('No recently played tracks yet.'));
   }
+  historySection.append(historyLabel, historyList);
+  queueSections.push(historySection);
+
+  // --- 2. Now Playing Section ---
+  const currentSection = document.createElement('div');
+  currentSection.className = 'queue-section queue-now-playing-section';
+  const currentLabel = document.createElement('span');
+  currentLabel.className = 'queue-section-label';
+  currentLabel.textContent = 'Now playing';
+  const currentContent = document.createElement('div');
+  currentContent.className = 'queue-items queue-now-playing-items';
+  
+  if (activeTrack) {
+    currentContent.append(renderQueueHeaderRow(), renderQueueNowPlaying(activeTrack));
+  } else {
+    currentContent.append(renderEmptyState('Nothing is playing.'));
+  }
+  currentSection.append(currentLabel, currentContent);
+  queueSections.push(currentSection);
+
+  // --- 3. Up Next Section ---
+  const upNextSection = document.createElement('div');
+  upNextSection.className = 'queue-section queue-up-next-section';
+  const upNextLabel = document.createElement('span');
+  upNextLabel.className = 'queue-section-label';
+  upNextLabel.textContent = 'Up next';
+  const upNextList = document.createElement('div');
+  upNextList.className = 'queue-items';
+  
+  if (queueItems.length > 0) {
+    upNextList.append(renderQueueHeaderRow(), ...queueItems.map(renderQueueItem));
+  } else {
+    upNextList.append(renderEmptyState('No upcoming tracks.'));
+  }
+  upNextSection.append(upNextLabel, upNextList);
+  queueSections.push(upNextSection);
 
   queueList.replaceChildren(...queueSections);
 }
