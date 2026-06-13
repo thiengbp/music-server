@@ -41,6 +41,10 @@ const queueTitle = document.getElementById('queue-title');
 const searchInput = document.getElementById('search-input');
 const favoritesFilterButton = document.getElementById('favorites-filter');
 const audioPlayer = document.getElementById('audio-player');
+const preloadAudio = new Audio();
+preloadAudio.preload = 'auto';
+preloadAudio.muted = true;
+let preloadedTrackId = null;
 const shuffleButton = document.getElementById('shuffle-button');
 const previousButton = document.getElementById('previous-button');
 const playButton = document.getElementById('play-button');
@@ -1864,6 +1868,51 @@ function syncActiveTrack() {
   });
 }
 
+function preloadTrack(trackId) {
+  if (!trackId) {
+    if (preloadedTrackId !== null) {
+      preloadedTrackId = null;
+      preloadAudio.removeAttribute('src');
+      preloadAudio.load();
+      console.log('[Gapless] Cleared preload track');
+    }
+    return;
+  }
+
+  if (preloadedTrackId === trackId) {
+    return;
+  }
+
+  preloadedTrackId = trackId;
+  preloadAudio.src = `/stream/${trackId}`;
+  preloadAudio.load();
+  console.log(`[Gapless] Preloaded next track: ID=${trackId}`);
+}
+
+function preloadNextTrack() {
+  if (!activeTrackId) {
+    preloadTrack(null);
+    return;
+  }
+
+  let nextTrack = null;
+  if (queueTrackIds.length > 0) {
+    nextTrack = findTrackById(queueTrackIds[0]);
+  } else {
+    const nextIndex = nextTrackIndex();
+    if (nextIndex >= 0) {
+      const contextItems = contextTracks();
+      nextTrack = contextItems[nextIndex];
+    }
+  }
+
+  if (nextTrack && nextTrack.id !== activeTrackId) {
+    preloadTrack(nextTrack.id);
+  } else {
+    preloadTrack(null);
+  }
+}
+
 function loadTrackIntoPlayer(track) {
   canonicalDurationTrackId = track.id;
   canonicalDuration = 0;
@@ -1877,6 +1926,7 @@ function loadTrackIntoPlayer(track) {
   loadArtistInfoForTrack(track);
   audioPlayer.src = `/stream/${track.id}`;
   updateProgress();
+  preloadNextTrack();
 }
 
 function updateTrackInMemory(updatedTrack) {
@@ -2390,6 +2440,7 @@ function cycleRepeatMode() {
   updateQueueControls();
   scheduleQueueSync();
   savePlayerState();
+  preloadNextTrack();
 }
 
 function togglePlayPause() {
@@ -4043,6 +4094,7 @@ function renderQueue() {
   queueSections.push(upNextSection);
 
   queueList.replaceChildren(...queueSections);
+  preloadNextTrack();
 }
 
 function renderMixes() {
