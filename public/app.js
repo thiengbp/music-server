@@ -9,6 +9,8 @@ const LEARNED_DURATIONS_STORAGE_KEY = 'music-server.learned-durations.v1';
 const AUTO_SCAN_ENABLED_STORAGE_KEY = 'musicServer.autoScan.enabled';
 const AUTO_SCAN_INTERVAL_STORAGE_KEY = 'musicServer.autoScan.intervalMinutes';
 const AUTO_SCAN_LAST_SCAN_STORAGE_KEY = 'musicServer.autoScan.lastScanAt';
+const DISCOVERY_CACHE_STORAGE_KEY = 'music-server.discovery-cache.v1';
+const discoveryTracksCache = new Map();
 const ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v6';
 const LEGACY_ARTIST_INFO_CACHE_KEY = 'music-server.artist-info-cache.v5';
 const ARTIST_INFO_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -1593,6 +1595,7 @@ function findTrackById(trackId) {
     tracks.find((track) => track.id === trackId) ||
     favoriteTracks.find((track) => track.id === trackId) ||
     recentTracks.find((track) => track.id === trackId) ||
+    discoveryTracksCache.get(trackId) ||
     null;
 }
 
@@ -2576,7 +2579,7 @@ function renderActionMenu(track, options = {}) {
   });
 
   trackRadioButton.type = 'button';
-  trackRadioButton.textContent = 'Start track radio';
+  trackRadioButton.textContent = 'Track Radio';
   trackRadioButton.addEventListener('click', async (event) => {
     event.stopPropagation();
     closeActionMenus();
@@ -4556,6 +4559,7 @@ updateProgress();
 isRestoringPlayer = true;
 setActiveLibraryTab(activeLibraryTab);
 isRestoringPlayer = false;
+restoreDiscoveryTracksCache();
 loadTracks();
 loadFavorites();
 loadCollections();
@@ -4568,6 +4572,26 @@ setInterval(loadAutoScanStatus, 30000);
 // v3.2 Discovery Engine
 // ---------------------------------------------------------------------------
 
+function saveDiscoveryTracksCache() {
+  localStorage.setItem(DISCOVERY_CACHE_STORAGE_KEY, JSON.stringify(Array.from(discoveryTracksCache.entries())));
+}
+
+function restoreDiscoveryTracksCache() {
+  try {
+    const stored = localStorage.getItem(DISCOVERY_CACHE_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        for (const [id, track] of parsed) {
+          discoveryTracksCache.set(Number(id), track);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Failed to restore discovery tracks cache:', err);
+  }
+}
+
 async function playDiscoveryEndpoint(endpoint, label, buttonEl = null) {
   if (buttonEl) {
     buttonEl.classList.add('is-loading');
@@ -4577,7 +4601,15 @@ async function playDiscoveryEndpoint(endpoint, label, buttonEl = null) {
   try {
     const data = await requestJson(endpoint);
     const mixTracks = (data.tracks || [])
-      .map((t) => findTrackById(t.id))
+      .map((t) => {
+        let track = findTrackById(t.id);
+        if (!track) {
+          discoveryTracksCache.set(t.id, t);
+          saveDiscoveryTracksCache();
+          track = t;
+        }
+        return track;
+      })
       .filter(Boolean);
 
     if (!mixTracks.length) {

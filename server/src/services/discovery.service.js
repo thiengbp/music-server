@@ -419,6 +419,27 @@ async function getAlbumRadio(albumName, artistName, limit = 50) {
     if (result.length >= limit) break;
   }
 
+  // Fill remaining slots with random tracks if below limit
+  if (result.length < limit) {
+    const needed = limit - result.length;
+    const placeholders = Array.from(seen).map(() => '?').join(',');
+    const fallbackTracks = await dbAll(`
+      SELECT t.id, t.title, t.artist, t.album, t.duration, t.play_count, t.last_played_at,
+        CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
+      FROM tracks t
+      LEFT JOIN favorites f ON f.track_id = t.id
+      ${seen.size > 0 ? `WHERE t.id NOT IN (${placeholders})` : ''}
+      ORDER BY RANDOM() LIMIT ?
+    `, [...seen, needed]);
+
+    for (const track of fallbackTracks) {
+      if (seen.has(track.id)) continue;
+      seen.add(track.id);
+      result.push(normalizeTrack(track));
+      if (result.length >= limit) break;
+    }
+  }
+
   return {
     tracks: result.slice(0, limit),
     seed: albumName,
@@ -495,6 +516,27 @@ async function getTrackRadio(trackId, limit = 50) {
   addTracks(artistTracks, true);
   addTracks(similarTracks, true);
 
+  // Fill remaining slots with random tracks if below limit
+  if (result.length < limit) {
+    const needed = limit - result.length;
+    const placeholders = Array.from(seen).map(() => '?').join(',');
+    const fallbackTracks = await dbAll(`
+      SELECT t.id, t.title, t.artist, t.album, t.duration, t.play_count, t.last_played_at,
+        CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
+      FROM tracks t
+      LEFT JOIN favorites f ON f.track_id = t.id
+      ${seen.size > 0 ? `WHERE t.id NOT IN (${placeholders})` : ''}
+      ORDER BY RANDOM() LIMIT ?
+    `, [...seen, needed]);
+
+    for (const track of fallbackTracks) {
+      if (seen.has(track.id)) continue;
+      seen.add(track.id);
+      result.push(normalizeTrack(track));
+      if (result.length >= limit) break;
+    }
+  }
+
   return {
     tracks: result.slice(0, limit),
     seed: { id: seed.id, title: seed.title, artist: seed.artist, album: seed.album },
@@ -546,7 +588,29 @@ async function getAutoMix(limit = 50) {
     pool.push(normalizeTrack(track));
   }
 
-  const shuffled = weightedShuffle(pool, (t) => 1 + t.play_count * 0.3 + (t.is_favorite ? 0.5 : 0));
+  let shuffled = weightedShuffle(pool, (t) => 1 + t.play_count * 0.3 + (t.is_favorite ? 0.5 : 0));
+
+  // Fill remaining slots with random tracks if below limit
+  if (shuffled.length < limit) {
+    const poolSeen = new Set(shuffled.map((t) => t.id));
+    const needed = limit - shuffled.length;
+    const placeholders = Array.from(poolSeen).map(() => '?').join(',');
+    const fallbackTracks = await dbAll(`
+      SELECT t.id, t.title, t.artist, t.album, t.duration, t.play_count, t.last_played_at,
+        CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
+      FROM tracks t
+      LEFT JOIN favorites f ON f.track_id = t.id
+      ${poolSeen.size > 0 ? `WHERE t.id NOT IN (${placeholders})` : ''}
+      ORDER BY RANDOM() LIMIT ?
+    `, [...poolSeen, needed]);
+
+    for (const track of fallbackTracks) {
+      if (poolSeen.has(track.id)) continue;
+      poolSeen.add(track.id);
+      shuffled.push(normalizeTrack(track));
+      if (shuffled.length >= limit) break;
+    }
+  }
 
   return {
     tracks: shuffled.slice(0, limit),
@@ -606,6 +670,21 @@ async function getDailyMix(limit = 50) {
     }).slice(0, 4);
   }
 
+  // Fallback 3: if still no seed artists (fresh db with play_count = 0), get random artists in library
+  if (seedArtists.length === 0) {
+    const fallbackRandom = await dbAll(`
+      SELECT
+        COALESCE(NULLIF(TRIM(artist), ''), 'Unknown artist') AS name,
+        0 AS recentPlays
+      FROM tracks
+      WHERE COALESCE(NULLIF(TRIM(artist), ''), 'Unknown artist') != 'Unknown artist'
+      GROUP BY COALESCE(NULLIF(TRIM(artist), ''), 'Unknown artist')
+      ORDER BY RANDOM()
+      LIMIT 4
+    `);
+    seedArtists = fallbackRandom;
+  }
+
   // For each seed artist: mix played + unplayed tracks
   const tracksPerArtist = Math.max(8, Math.ceil(limit / Math.max(seedArtists.length, 1)));
   const seen = new Set();
@@ -627,7 +706,29 @@ async function getDailyMix(limit = 50) {
     }
   }
 
-  const shuffled = weightedShuffle(pool, (t) => 1 + t.play_count * 0.2 + (t.is_favorite ? 0.3 : 0));
+  let shuffled = weightedShuffle(pool, (t) => 1 + t.play_count * 0.2 + (t.is_favorite ? 0.3 : 0));
+
+  // Fill remaining slots with random tracks if below limit
+  if (shuffled.length < limit) {
+    const poolSeen = new Set(shuffled.map((t) => t.id));
+    const needed = limit - shuffled.length;
+    const placeholders = Array.from(poolSeen).map(() => '?').join(',');
+    const fallbackTracks = await dbAll(`
+      SELECT t.id, t.title, t.artist, t.album, t.duration, t.play_count, t.last_played_at,
+        CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
+      FROM tracks t
+      LEFT JOIN favorites f ON f.track_id = t.id
+      ${poolSeen.size > 0 ? `WHERE t.id NOT IN (${placeholders})` : ''}
+      ORDER BY RANDOM() LIMIT ?
+    `, [...poolSeen, needed]);
+
+    for (const track of fallbackTracks) {
+      if (poolSeen.has(track.id)) continue;
+      poolSeen.add(track.id);
+      shuffled.push(normalizeTrack(track));
+      if (shuffled.length >= limit) break;
+    }
+  }
 
   return {
     tracks: shuffled.slice(0, limit),
