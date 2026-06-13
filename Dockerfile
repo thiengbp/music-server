@@ -1,12 +1,23 @@
-FROM node:20-bookworm-slim
+FROM node:20-slim
 
+# Set working directory
 WORKDIR /app
 
-COPY package.json ./
-RUN npm install
+# Copy package files and install production dependencies
+COPY package*.json ./
+RUN npm ci --only=production
 
-COPY . .
+# Copy application source files
+COPY server/ ./server/
+COPY public/ ./public/
 
+# Set environment variables defaults
+ENV PORT=3000
+ENV DATABASE_PATH=/app/data/music.db
+ENV MUSIC_LIBRARY_PATH=/music
+
+# Expose app port
 EXPOSE 3000
 
-CMD ["npm", "start"]
+# Start command
+CMD ["node", "server/src/index.js"]
