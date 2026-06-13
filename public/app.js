@@ -2278,37 +2278,19 @@ function playPreviousTrack() {
     return;
   }
 
-  if (queueActiveIndex < 0 && currentTrackIndex > 0) {
-    playTrackAt(currentTrackIndex - 1);
-    return;
-  }
-
   const historyEntry = popPreviousHistoryEntry();
 
   if (historyEntry) {
-    const queueIndex = historyEntry.source === 'queue'
-      ? queueTrackIds.findIndex((trackId) => trackId === historyEntry.trackId)
-      : -1;
-    const contextIndex = contextTracks().findIndex((track) => track.id === historyEntry.trackId);
-
-    if (queueActiveIndex >= 0 && queueIndex >= 0) {
-      playQueueAt(queueIndex);
+    const track = findTrackById(historyEntry.trackId);
+    if (track) {
+      playTrackFromList(track);
       return;
     }
-
-    if (contextIndex >= 0) {
-      playTrackAt(contextIndex);
-      return;
-    }
-  }
-
-  if (queueActiveIndex > 0) {
-    playQueueAt(queueActiveIndex - 1);
-    return;
   }
 
   audioPlayer.currentTime = 0;
   updateProgress();
+  savePlayerState();
 }
 
 function randomNextIndex(listLength, activeIndex, trackIds = []) {
@@ -2995,6 +2977,59 @@ function renderQueueNowPlaying(track) {
   duration.textContent = formatTrackDuration(track);
 
   item.append(num, renderCover(track, 'queue-cover'), title, artist, album, duration, spacer);
+
+  return item;
+}
+
+function renderQueueHistoryItem(track, index) {
+  const item = document.createElement('div');
+  const num = document.createElement('span');
+  const title = document.createElement('span');
+  const artist = document.createElement('span');
+  const album = document.createElement('span');
+  const duration = document.createElement('span');
+  const spacer = document.createElement('span');
+
+  item.className = 'queue-item queue-history-item';
+  item.style.opacity = '0.55';
+  item.setAttribute('role', 'button');
+  item.tabIndex = 0;
+  item.dataset.trackId = String(track.id);
+
+  num.className = 'queue-num';
+  num.textContent = '↩';
+  title.className = 'queue-name';
+  artist.className = 'queue-artist';
+  album.className = 'queue-album';
+  duration.className = 'queue-duration';
+  spacer.className = 'queue-action-spacer';
+
+  title.textContent = track.title;
+  artist.textContent = formatArtist(track);
+  album.textContent = formatAlbum(track);
+  duration.textContent = formatTrackDuration(track);
+
+  artist.classList.add('meta-link');
+  album.classList.add('meta-link');
+  artist.addEventListener('click', (event) => {
+    event.stopPropagation();
+    viewTrackArtist(track);
+  });
+  album.addEventListener('click', (event) => {
+    event.stopPropagation();
+    viewTrackAlbum(track);
+  });
+
+  item.append(num, renderCover(track, 'queue-cover'), title, artist, album, duration, spacer);
+  item.addEventListener('click', () => {
+    playTrackFromList(track);
+  });
+  item.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      playTrackFromList(track);
+    }
+  });
 
   return item;
 }
@@ -3935,6 +3970,27 @@ function renderQueue() {
   clearButton.addEventListener('click', clearQueue);
   toolbar.append(heading, clearButton);
   queueSections.push(toolbar);
+
+  // Lịch sử phát (loại trừ bài hiện tại là phần tử cuối trong queueHistory)
+  const historyEntries = queueHistory.slice(0, -1);
+  const historyTracks = historyEntries
+    .map((entry) => findTrackById(entry.trackId))
+    .filter(Boolean)
+    .slice(-5); // Lấy tối đa 5 bài gần nhất
+
+  if (historyTracks.length > 0) {
+    const historySection = document.createElement('div');
+    const label = document.createElement('span');
+    const list = document.createElement('div');
+
+    historySection.className = 'queue-section queue-history-section';
+    label.className = 'queue-section-label';
+    label.textContent = 'Recently played';
+    list.className = 'queue-items queue-history-items';
+    list.append(renderQueueHeaderRow(), ...historyTracks.map((t, idx) => renderQueueHistoryItem(t, idx)));
+    historySection.append(label, list);
+    queueSections.push(historySection);
+  }
 
   if (activeTrack) {
     const current = document.createElement('div');
