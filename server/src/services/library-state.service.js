@@ -186,6 +186,13 @@ async function getPlaylistTracks(playlistId) {
       t.file_path,
       t.duration,
       t.created_at,
+      t.bitrate,
+      t.sample_rate,
+      t.bit_depth,
+      t.codec,
+      t.container,
+      t.channels,
+      t.file_size,
       CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
     FROM playlist_tracks pt
     JOIN tracks t ON t.id = pt.track_id
@@ -365,6 +372,13 @@ async function getQueueItems() {
       t.file_path,
       t.duration,
       t.created_at,
+      t.bitrate,
+      t.sample_rate,
+      t.bit_depth,
+      t.codec,
+      t.container,
+      t.channels,
+      t.file_size,
       CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
     FROM queue_items qi
     JOIN tracks t ON t.id = qi.track_id
@@ -383,6 +397,13 @@ async function getQueueItems() {
       file_path: row.file_path,
       duration: row.duration,
       created_at: row.created_at,
+      bitrate: row.bitrate,
+      sample_rate: row.sample_rate,
+      bit_depth: row.bit_depth,
+      codec: row.codec,
+      container: row.container,
+      channels: row.channels,
+      file_size: row.file_size,
       is_favorite: row.is_favorite
     })
   }));

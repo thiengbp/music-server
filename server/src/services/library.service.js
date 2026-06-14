@@ -29,6 +29,15 @@ function dbAll(sql, params = []) {
   });
 }
 
+function dbGet(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => {
+      if (err) return reject(err);
+      resolve(row);
+    });
+  });
+}
+
 function isAudioFile(filePath) {
   return AUDIO_EXTENSIONS.has(path.extname(filePath).toLowerCase());
 }
@@ -57,26 +66,87 @@ async function collectAudioFiles(directoryPath) {
   return audioFiles;
 }
 
-async function insertTrackIfMissing(filePath) {
-  const metadata = await metadataService.readMetadata(filePath);
+async function processTrackScan(filePath) {
+  // 1. Check if track already exists in database
+  const existing = await dbGet(`
+    SELECT id, bitrate, sample_rate, bit_depth, codec, container, channels, file_size
+    FROM tracks
+    WHERE file_path = ?
+  `, [filePath]);
 
-  const result = await dbRun(`
-    INSERT OR IGNORE INTO tracks (
-      title,
-      artist,
-      album,
-      file_path,
-      duration
-    ) VALUES (?, ?, ?, ?, ?)
-  `, [
-    metadata.title,
-    metadata.artist,
-    metadata.album,
-    filePath,
-    metadata.duration
-  ]);
+  if (!existing) {
+    // New track, perform insertion with full metadata
+    const metadata = await metadataService.readMetadata(filePath);
+    await dbRun(`
+      INSERT INTO tracks (
+        title,
+        artist,
+        album,
+        file_path,
+        duration,
+        bitrate,
+        sample_rate,
+        bit_depth,
+        codec,
+        container,
+        channels,
+        file_size
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      metadata.title,
+      metadata.artist,
+      metadata.album,
+      filePath,
+      metadata.duration,
+      metadata.bitrate,
+      metadata.sample_rate,
+      metadata.bit_depth,
+      metadata.codec,
+      metadata.container,
+      metadata.channels,
+      metadata.file_size
+    ]);
+    return { status: 'inserted' };
+  }
 
-  return result.changes === 1;
+  // Track exists, check if we need to update/backfill technical metadata
+  const hasNullField =
+    existing.bitrate === null ||
+    existing.sample_rate === null ||
+    existing.bit_depth === null ||
+    existing.codec === null ||
+    existing.container === null ||
+    existing.channels === null ||
+    existing.file_size === null;
+
+  if (hasNullField) {
+    // Missing metadata, read file and backfill columns
+    const metadata = await metadataService.readMetadata(filePath);
+    await dbRun(`
+      UPDATE tracks SET
+        bitrate = CASE WHEN bitrate IS NULL THEN ? ELSE bitrate END,
+        sample_rate = CASE WHEN sample_rate IS NULL THEN ? ELSE sample_rate END,
+        bit_depth = CASE WHEN bit_depth IS NULL THEN ? ELSE bit_depth END,
+        codec = CASE WHEN codec IS NULL THEN ? ELSE codec END,
+        container = CASE WHEN container IS NULL THEN ? ELSE container END,
+        channels = CASE WHEN channels IS NULL THEN ? ELSE channels END,
+        file_size = CASE WHEN file_size IS NULL THEN ? ELSE file_size END
+      WHERE id = ?
+    `, [
+      metadata.bitrate,
+      metadata.sample_rate,
+      metadata.bit_depth,
+      metadata.codec,
+      metadata.container,
+      metadata.channels,
+      metadata.file_size,
+      existing.id
+    ]);
+    return { status: 'updated' };
+  }
+
+  // Already has all metadata, skip
+  return { status: 'skipped' };
 }
 
 function isPathInsideRoot(filePath, libraryRoot) {
@@ -161,12 +231,18 @@ async function scanLibrary(libraryPath) {
   const audioFiles = (await collectAudioFiles(libraryRoot)).map((filePath) => path.resolve(filePath));
   const discoveredPaths = new Set(audioFiles);
   let inserted = 0;
+  let updated = 0;
+  let skipped = 0;
 
   for (const filePath of audioFiles) {
-    const wasInserted = await insertTrackIfMissing(filePath);
+    const scanResult = await processTrackScan(filePath);
 
-    if (wasInserted) {
+    if (scanResult.status === 'inserted') {
       inserted += 1;
+    } else if (scanResult.status === 'updated') {
+      updated += 1;
+    } else {
+      skipped += 1;
     }
   }
 
@@ -176,7 +252,8 @@ async function scanLibrary(libraryPath) {
   return {
     scanned: audioFiles.length,
     inserted,
-    skipped: audioFiles.length - inserted,
+    updated,
+    skipped,
     removed
   };
 }

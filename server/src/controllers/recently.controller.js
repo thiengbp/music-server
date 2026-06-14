@@ -24,6 +24,13 @@ async function listRecentlyPlayed(req, res) {
         t.file_path,
         t.duration,
         t.created_at,
+        t.bitrate,
+        t.sample_rate,
+        t.bit_depth,
+        t.codec,
+        t.container,
+        t.channels,
+        t.file_size,
         CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
       FROM play_history ph
       JOIN tracks t ON t.id = ph.track_id

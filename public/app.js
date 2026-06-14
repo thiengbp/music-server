@@ -59,6 +59,8 @@ const durationTimeLabel = document.getElementById('duration-time');
 const volumeInput = document.getElementById('volume-input');
 const nowTitle = document.getElementById('now-title');
 const nowArtist = document.getElementById('now-artist');
+const nowTechnical = document.getElementById('now-technical');
+const heroTechnical = document.getElementById('hero-technical');
 const coverArt = document.getElementById('cover-art');
 const coverPlaceholder = document.getElementById('cover-placeholder');
 const heroCoverArt = document.getElementById('hero-cover-art');
@@ -1930,6 +1932,117 @@ function preloadNextTrack() {
   }
 }
 
+function formatTechnicalMetadata(track, isFull = false) {
+  if (!track) return '';
+  const parts = [];
+
+  // 1. Codec / Container
+  let codecStr = '';
+  if (track.codec) {
+    codecStr = track.codec.toUpperCase();
+  } else if (track.container) {
+    codecStr = track.container.toUpperCase();
+  }
+  
+  // Normalize common codecs
+  if (codecStr.includes('MPEG 1 LAYER 3') || codecStr === 'MP3') {
+    codecStr = 'MP3';
+  } else if (codecStr.includes('AAC') || codecStr === 'ADTS') {
+    codecStr = 'AAC';
+  } else if (codecStr.includes('FLAC')) {
+    codecStr = 'FLAC';
+  } else if (codecStr.includes('WAV') || codecStr === 'WAVE') {
+    codecStr = 'WAV';
+  } else if (codecStr.includes('M4A')) {
+    codecStr = 'M4A';
+  }
+
+  // 2. Bit depth / Sample rate
+  let depthRate = '';
+  if (track.bit_depth) {
+    depthRate += `${track.bit_depth}-bit`;
+  }
+  if (track.sample_rate) {
+    const rateKhz = (track.sample_rate / 1000).toFixed(1).replace('.0', '');
+    if (depthRate) {
+      depthRate += ` / ${rateKhz} kHz`;
+    } else {
+      depthRate += `${rateKhz} kHz`;
+    }
+  }
+
+  // 3. Bitrate
+  let bitrateStr = '';
+  if (track.bitrate) {
+    const kbps = Math.round(track.bitrate / 1000);
+    bitrateStr = `${kbps} kbps`;
+  }
+
+  // 4. Channels
+  let channelsStr = '';
+  if (track.channels !== null && track.channels !== undefined) {
+    if (track.channels === 2) {
+      channelsStr = 'Stereo';
+    } else if (track.channels === 1) {
+      channelsStr = 'Mono';
+    } else if (isFull) {
+      channelsStr = `${track.channels} ch`;
+    }
+  }
+
+  // 5. File size
+  let sizeStr = '';
+  if (isFull && track.file_size) {
+    const sizeMb = (track.file_size / (1024 * 1024)).toFixed(1);
+    sizeStr = `${sizeMb} MB`;
+  }
+
+  if (codecStr) parts.push(codecStr);
+  if (depthRate) parts.push(depthRate);
+  if (bitrateStr) parts.push(bitrateStr);
+  if (channelsStr) parts.push(channelsStr);
+  if (sizeStr) parts.push(sizeStr);
+
+  return parts.join(' • ');
+}
+
+function updateTechnicalMetadataUI(track) {
+  if (!track) {
+    if (nowTechnical) {
+      nowTechnical.style.display = 'none';
+      nowTechnical.textContent = '';
+    }
+    if (heroTechnical) {
+      heroTechnical.style.display = 'none';
+      heroTechnical.textContent = '';
+    }
+    return;
+  }
+
+  const compactText = formatTechnicalMetadata(track, false);
+  const fullText = formatTechnicalMetadata(track, true);
+
+  if (nowTechnical) {
+    if (compactText) {
+      nowTechnical.textContent = compactText;
+      nowTechnical.style.display = 'block';
+    } else {
+      nowTechnical.style.display = 'none';
+      nowTechnical.textContent = '';
+    }
+  }
+
+  if (heroTechnical) {
+    if (fullText) {
+      heroTechnical.textContent = fullText;
+      heroTechnical.style.display = 'block';
+    } else {
+      heroTechnical.style.display = 'none';
+      heroTechnical.textContent = '';
+    }
+  }
+}
+
 function loadTrackIntoPlayer(track) {
   canonicalDurationTrackId = track.id;
   canonicalDuration = 0;
@@ -1940,6 +2053,26 @@ function loadTrackIntoPlayer(track) {
   heroMeta.textContent = `${formatArtist(track)} • ${formatAlbum(track)}`;
   setCoverImage(coverArt, coverPlaceholder, track.id);
   setCoverImage(heroCoverArt, heroCoverPlaceholder, track.id);
+  
+  // Update UI with existing metadata first
+  updateTechnicalMetadataUI(track);
+
+  // Fallback to fetch details if technical metadata is missing
+  if (track.bitrate === undefined || track.bitrate === null) {
+    fetch(`/tracks/${track.id}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.track) {
+          updateTrackInMemory(data.track);
+          // If the loaded track is still the current active track, update UI
+          if (activeTrackId === track.id) {
+            updateTechnicalMetadataUI(data.track);
+          }
+        }
+      })
+      .catch((err) => console.warn('Failed to fetch technical metadata fallback:', err));
+  }
+
   loadArtistInfoForTrack(track);
   audioPlayer.src = `/stream/${track.id}`;
   updateProgress();

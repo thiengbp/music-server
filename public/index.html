@@ -255,6 +255,14 @@
         line-height: 1.35;
       }
 
+      .hero-technical {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.35;
+        opacity: 0.85;
+      }
+
       .artist-info {
         position: relative;
         display: grid;
@@ -1789,6 +1797,17 @@
         font-size: 11px;
       }
 
+      .now-technical {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 9px;
+        opacity: 0.85;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
       .controls {
         display: grid;
         grid-template-columns: auto minmax(0, 1fr);
@@ -2779,6 +2798,7 @@
                 <p class="hero-eyebrow">Now Playing</p>
                 <span id="hero-title" class="hero-title">Choose a song</span>
                 <p id="hero-meta" class="hero-meta">Your local library is ready.</p>
+                <p id="hero-technical" class="hero-technical" style="display: none;"></p>
               </div>
             </div>
             <aside class="artist-info" aria-label="Artist info">
@@ -2820,6 +2840,7 @@
               <div class="now-text">
                 <span id="now-title" class="now-title">Select a track</span>
                 <span id="now-artist" class="now-artist">Nothing playing</span>
+                <span id="now-technical" class="now-technical" style="display: none;"></span>
               </div>
             </div>
 

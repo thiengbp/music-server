@@ -186,6 +186,13 @@ async function findTrackById(trackId) {
       t.created_at,
       t.play_count,
       t.last_played_at,
+      t.bitrate,
+      t.sample_rate,
+      t.bit_depth,
+      t.codec,
+      t.container,
+      t.channels,
+      t.file_size,
       CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
     FROM tracks t
     LEFT JOIN favorites f ON f.track_id = t.id
@@ -219,6 +226,13 @@ async function listTracks(req, res) {
         t.created_at,
         t.play_count,
         t.last_played_at,
+        t.bitrate,
+        t.sample_rate,
+        t.bit_depth,
+        t.codec,
+        t.container,
+        t.channels,
+        t.file_size,
         CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
       FROM tracks t
       LEFT JOIN favorites f ON f.track_id = t.id
@@ -282,6 +296,13 @@ async function createTrack(req, res) {
         t.created_at,
         t.play_count,
         t.last_played_at,
+        t.bitrate,
+        t.sample_rate,
+        t.bit_depth,
+        t.codec,
+        t.container,
+        t.channels,
+        t.file_size,
         CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
       FROM tracks t
       LEFT JOIN favorites f ON f.track_id = t.id
