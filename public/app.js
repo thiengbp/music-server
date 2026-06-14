@@ -87,6 +87,12 @@ const autoScanIntervalLabel = document.getElementById('auto-scan-interval-label'
 const autoScanStatusLabel = document.getElementById('auto-scan-status');
 const autoScanLastLabel = document.getElementById('auto-scan-last');
 const scanNowButton = document.getElementById('scan-now-button');
+const settingsAppVersion = document.getElementById('settings-app-version');
+const settingsAppBuild = document.getElementById('settings-app-build');
+const settingsAppCommit = document.getElementById('settings-app-commit');
+const settingsAppStarted = document.getElementById('settings-app-started');
+const settingsUpdateCheckButton = document.getElementById('settings-update-check-button');
+
 
 let searchTimer = null;
 let activeTrackId = null;
@@ -103,6 +109,9 @@ let recentTracks = [];
 let currentTrackIndex = -1;
 let isShuffleEnabled = false;
 let repeatMode = 'off';
+let currentAppVersionInfo = null;
+let lastAppVersionCheckAt = 0;
+const VERSION_CHECK_THROTTLE_MS = 15000; // 15 seconds throttle
 let activeLibraryTab = 'songs';
 let selectedAlbumName = null;
 let selectedArtistName = null;
@@ -307,6 +316,8 @@ function renderSettingsPanel() {
     scanNowButton.disabled = isAutoScanning;
     scanNowButton.textContent = isAutoScanning ? 'Scanning...' : 'Run scan now';
   }
+
+  renderVersionInfo(currentAppVersionInfo);
 }
 
 function openSettings() {
@@ -4718,9 +4729,113 @@ async function scanNow() {
   await runAutoScan('manual');
 }
 
+async function fetchAppVersion() {
+  try {
+    const response = await fetch(`/version?ts=${Date.now()}`, {
+      cache: 'no-store'
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return await response.json();
+  } catch (err) {
+    console.warn('Failed to fetch app version:', err);
+    return null;
+  }
+}
+
+function renderVersionInfo(versionInfo) {
+  if (!versionInfo) return;
+  if (settingsAppVersion) settingsAppVersion.textContent = versionInfo.version || '—';
+  if (settingsAppBuild) settingsAppBuild.textContent = versionInfo.build || '—';
+  if (settingsAppCommit) {
+    settingsAppCommit.textContent = (versionInfo.commit && versionInfo.commit !== 'unknown')
+      ? versionInfo.commit.substring(0, 7)
+      : 'unknown';
+  }
+  if (settingsAppStarted) {
+    const date = new Date(versionInfo.started_at);
+    settingsAppStarted.textContent = !isNaN(date.getTime()) ? date.toLocaleString() : '—';
+  }
+}
+
+async function checkForUpdates(isManual = false) {
+  const now = Date.now();
+  if (!isManual && now - lastAppVersionCheckAt < VERSION_CHECK_THROTTLE_MS) {
+    return;
+  }
+  lastAppVersionCheckAt = now;
+
+  const latestVersionInfo = await fetchAppVersion();
+  if (!latestVersionInfo) {
+    if (isManual) {
+      showToast('Failed to check for updates');
+    }
+    return;
+  }
+
+  if (!currentAppVersionInfo) {
+    currentAppVersionInfo = latestVersionInfo;
+    renderVersionInfo(currentAppVersionInfo);
+    return;
+  }
+
+  const hasNewVersion =
+    latestVersionInfo.version !== currentAppVersionInfo.version ||
+    latestVersionInfo.build !== currentAppVersionInfo.build ||
+    latestVersionInfo.commit !== currentAppVersionInfo.commit;
+
+  if (hasNewVersion) {
+    console.log('New app version detected, reloading...');
+    showToast('Updating app...');
+    setTimeout(() => {
+      window.location.reload();
+    }, 1000);
+  } else {
+    if (isManual) {
+      showToast('App is up to date');
+    }
+  }
+}
+
+function setupAutoUpdateEvents() {
+  window.addEventListener('focus', () => {
+    checkForUpdates(false).catch(() => {});
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      checkForUpdates(false).catch(() => {});
+    }
+  });
+
+  window.addEventListener('pageshow', () => {
+    checkForUpdates(false).catch(() => {});
+  });
+}
+
+function bindUpdateCheckButton() {
+  if (settingsUpdateCheckButton) {
+    settingsUpdateCheckButton.addEventListener('click', async () => {
+      settingsUpdateCheckButton.disabled = true;
+      const originalText = settingsUpdateCheckButton.textContent;
+      settingsUpdateCheckButton.textContent = 'Checking...';
+      try {
+        await checkForUpdates(true);
+      } catch (err) {
+        console.warn(err);
+      } finally {
+        settingsUpdateCheckButton.disabled = false;
+        settingsUpdateCheckButton.textContent = originalText;
+      }
+    });
+  }
+}
+
 function bindSettingsControls() {
   settingsButton?.addEventListener('click', openSettings);
   settingsCloseButton?.addEventListener('click', closeSettings);
+  bindUpdateCheckButton();
 
   settingsOverlay?.addEventListener('click', (event) => {
     if (event.target === settingsOverlay) {
@@ -4982,6 +5097,10 @@ setInterval(loadAutoScanStatus, 30000);
 initMediaSessionPlaybackHandlers();
 initAirPlay();
 initCastSupport();
+
+// Setup app updates
+checkForUpdates(false).catch(() => {});
+setupAutoUpdateEvents();
 
 // ---------------------------------------------------------------------------
 // v3.2 Discovery Engine

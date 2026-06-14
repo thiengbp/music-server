@@ -2,6 +2,17 @@
 
 require('dotenv').config();
 
+const serverStartedAt = new Date().toISOString();
+const fallbackBuildId = String(Date.now());
+
+let packageVersion = 'dev';
+try {
+  const packageJson = require('../../package.json');
+  packageVersion = packageJson.version || 'dev';
+} catch (e) {
+  // fallback
+}
+
 const express = require('express');
 const path = require('path');
 const db = require('./config/database');
@@ -48,6 +59,20 @@ app.get('/health', async (req, res) => {
       message: err.message
     });
   }
+});
+
+app.get('/version', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+
+  res.json({
+    version: process.env.APP_VERSION || packageVersion,
+    build: process.env.BUILD_ID || fallbackBuildId,
+    commit: process.env.GIT_COMMIT || 'unknown',
+    started_at: serverStartedAt,
+    timestamp: new Date().toISOString()
+  });
 });
 
 app.use('/tracks', tracksRoutes);
