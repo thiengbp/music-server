@@ -19,6 +19,8 @@ Mở tệp `.env` vừa tạo và chỉnh sửa các tham số sau:
   - Đối với chạy thử nghiệm cục bộ (local test): Bạn có thể tạo thư mục `./music` tại thư mục dự án và gán `HOST_MUSIC_PATH=./music`.
   - Đối với môi trường triển khai thực tế hoặc trên container LXC: Nên cấu hình đường dẫn tuyệt đối ổn định như `/opt/music-server/music`.
 - `LIBRARY_SCAN_INTERVAL_MINUTES`: Khoảng thời gian tự động quét lại thư viện nhạc, tính bằng phút (mặc định: `15`).
+- `TRACKS_MAX_LIMIT`: Giới hạn số lượng bài hát tối đa mà API `/tracks` trả về (mặc định: `1000`). Nếu thư viện của bạn có dung lượng rất lớn, hãy tăng giá trị này để hiển thị nhiều bài hát hơn trên giao diện.
+
 
 ### Bước 3: Tạo các thư mục lưu trữ dữ liệu (Khuyên dùng cho LXC/Server thật)
 Khi triển khai trên máy chủ Linux hoặc container LXC, hãy tạo cấu trúc thư mục chuẩn để lưu trữ dữ liệu và nhạc:

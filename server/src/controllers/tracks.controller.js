@@ -93,6 +93,10 @@ function validateCreateTrackPayload(body) {
 }
 
 function parseLimit(value) {
+  const defaultMaxLimit = 1000;
+  const envMaxLimit = process.env.TRACKS_MAX_LIMIT ? Number(process.env.TRACKS_MAX_LIMIT) : defaultMaxLimit;
+  const maxLimit = Number.isInteger(envMaxLimit) && envMaxLimit > 0 ? envMaxLimit : defaultMaxLimit;
+
   if (value === undefined) {
     return 50;
   }
@@ -103,7 +107,7 @@ function parseLimit(value) {
     return null;
   }
 
-  return Math.min(limit, 200);
+  return Math.min(limit, maxLimit);
 }
 
 function parseOffset(value) {

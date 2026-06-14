@@ -1,23 +1,18 @@
-FROM node:20-slim
+FROM node:20-bookworm-slim
 
-# Set working directory
 WORKDIR /app
 
-# Copy package files and install production dependencies
-COPY package*.json ./
-RUN npm ci --only=production
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
 
-# Copy application source files
+COPY package*.json ./
+
+RUN npm ci --omit=dev --build-from-source=sqlite3
+
 COPY server/ ./server/
 COPY public/ ./public/
 
-# Set environment variables defaults
-ENV PORT=3000
-ENV DATABASE_PATH=/app/data/music.db
-ENV MUSIC_LIBRARY_PATH=/music
-
-# Expose app port
 EXPOSE 3000
 
-# Start command
-CMD ["node", "server/src/index.js"]
+CMD ["npm", "start"]

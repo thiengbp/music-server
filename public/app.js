@@ -4199,7 +4199,7 @@ function renderLibrary() {
 
 function tracksUrl() {
   const params = new URLSearchParams({
-    limit: '500'
+    limit: '1000'
   });
 
   return `/tracks?${params.toString()}`;
@@ -4239,7 +4239,7 @@ async function loadTracks(searchValue = '') {
 
 async function loadFavorites() {
   try {
-    const response = await fetch('/tracks?favorite=true&limit=200');
+    const response = await fetch('/tracks?favorite=true&limit=1000');
 
     if (!response.ok) {
       throw new Error(`Failed to load favorites: ${response.status}`);
