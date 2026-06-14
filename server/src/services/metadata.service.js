@@ -27,7 +27,11 @@ function fallbackMetadata(filePath) {
     title: titleFromFilePath(filePath),
     artist: null,
     album: null,
-    duration: null
+    duration: null,
+    album_artist: null,
+    genre: null,
+    year: null,
+    track_number: null
   };
 }
 
@@ -46,11 +50,42 @@ async function readMetadata(filePath) {
       console.warn(`Failed to stat file ${filePath}:`, statErr.message);
     }
 
+    let genre = null;
+    if (Array.isArray(common.genre) && common.genre.length > 0) {
+      genre = common.genre.join(', ');
+    } else if (typeof common.genre === 'string') {
+      genre = common.genre;
+    }
+
+    let trackNumber = null;
+    if (common.track && typeof common.track.no === 'number') {
+      trackNumber = common.track.no;
+    }
+
+    let year = null;
+    if (typeof common.year === 'number') {
+      year = common.year;
+    } else if (typeof common.year === 'string') {
+      const parsedYear = parseInt(common.year, 10);
+      if (!isNaN(parsedYear)) year = parsedYear;
+    } else if (common.date) {
+      const match = String(common.date).match(/^(\d{4})/);
+      if (match) {
+        year = parseInt(match[1], 10);
+      }
+    }
+
     return {
       title: normalizeOptionalString(common.title) || titleFromFilePath(filePath),
       artist: normalizeOptionalString(common.artist),
       album: normalizeOptionalString(common.album),
       duration: normalizeDuration(format.duration),
+      
+      // Basic Metadata
+      album_artist: normalizeOptionalString(common.albumartist),
+      genre: normalizeOptionalString(genre),
+      year: year,
+      track_number: trackNumber,
       
       // Technical Metadata
       bitrate: format.bitrate ? Math.round(format.bitrate) : null,

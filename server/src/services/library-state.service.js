@@ -193,6 +193,12 @@ async function getPlaylistTracks(playlistId) {
       t.container,
       t.channels,
       t.file_size,
+      t.album_artist,
+      t.genre,
+      t.year,
+      t.track_number,
+      t.metadata_source,
+      t.metadata_updated_at,
       CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
     FROM playlist_tracks pt
     JOIN tracks t ON t.id = pt.track_id
@@ -379,6 +385,12 @@ async function getQueueItems() {
       t.container,
       t.channels,
       t.file_size,
+      t.album_artist,
+      t.genre,
+      t.year,
+      t.track_number,
+      t.metadata_source,
+      t.metadata_updated_at,
       CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
     FROM queue_items qi
     JOIN tracks t ON t.id = qi.track_id
@@ -404,6 +416,12 @@ async function getQueueItems() {
       container: row.container,
       channels: row.channels,
       file_size: row.file_size,
+      album_artist: row.album_artist,
+      genre: row.genre,
+      year: row.year,
+      track_number: row.track_number,
+      metadata_source: row.metadata_source,
+      metadata_updated_at: row.metadata_updated_at,
       is_favorite: row.is_favorite
     })
   }));

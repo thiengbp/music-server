@@ -62,13 +62,13 @@ function runMigrations() {
         console.log('Production schema detected. Skipping base migrations (001-005).');
       }
 
-      // Safe check and alter for technical metadata columns (migration 006)
-      ensureAudioTechnicalMetadataColumns();
+      // Safe check and alter for technical and basic metadata columns (migration 006 & 007)
+      ensureMetadataColumns();
     });
   });
 }
 
-function ensureAudioTechnicalMetadataColumns() {
+function ensureMetadataColumns() {
   db.all("PRAGMA table_info(tracks)", (err, columns) => {
     if (err) {
       console.error('Failed to read table info for tracks:', err.message);
@@ -77,18 +77,26 @@ function ensureAudioTechnicalMetadataColumns() {
 
     const existingColumns = new Set(columns.map(col => col.name.toLowerCase()));
     const columnsToEnsure = [
+      // technical metadata (006)
       { name: 'bitrate', type: 'INTEGER' },
       { name: 'sample_rate', type: 'INTEGER' },
       { name: 'bit_depth', type: 'INTEGER' },
       { name: 'codec', type: 'TEXT' },
       { name: 'container', type: 'TEXT' },
       { name: 'channels', type: 'INTEGER' },
-      { name: 'file_size', type: 'INTEGER' }
+      { name: 'file_size', type: 'INTEGER' },
+      // basic metadata editor (007)
+      { name: 'album_artist', type: 'TEXT' },
+      { name: 'genre', type: 'TEXT' },
+      { name: 'year', type: 'INTEGER' },
+      { name: 'track_number', type: 'INTEGER' },
+      { name: 'metadata_source', type: 'TEXT DEFAULT \'file\'' },
+      { name: 'metadata_updated_at', type: 'TEXT' }
     ];
 
     columnsToEnsure.forEach(col => {
       if (!existingColumns.has(col.name.toLowerCase())) {
-        console.log(`Adding missing technical metadata column: ${col.name} (${col.type})`);
+        console.log(`Adding missing metadata column: ${col.name} (${col.type})`);
         db.run(`ALTER TABLE tracks ADD COLUMN ${col.name} ${col.type}`, (alterErr) => {
           if (alterErr) {
             console.error(`Failed to add column ${col.name}:`, alterErr.message);
@@ -99,11 +107,11 @@ function ensureAudioTechnicalMetadataColumns() {
       }
     });
 
-    db.run("PRAGMA user_version = 6", (versionErr) => {
+    db.run("PRAGMA user_version = 7", (versionErr) => {
       if (versionErr) {
-        console.error('Failed to update user_version to 6:', versionErr.message);
+        console.error('Failed to update user_version to 7:', versionErr.message);
       } else {
-        console.log('Database user_version set to 6');
+        console.log('Database user_version set to 7');
       }
     });
   });

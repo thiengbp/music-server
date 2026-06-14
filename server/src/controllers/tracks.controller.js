@@ -193,6 +193,12 @@ async function findTrackById(trackId) {
       t.container,
       t.channels,
       t.file_size,
+      t.album_artist,
+      t.genre,
+      t.year,
+      t.track_number,
+      t.metadata_source,
+      t.metadata_updated_at,
       CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
     FROM tracks t
     LEFT JOIN favorites f ON f.track_id = t.id
@@ -233,6 +239,12 @@ async function listTracks(req, res) {
         t.container,
         t.channels,
         t.file_size,
+        t.album_artist,
+        t.genre,
+        t.year,
+        t.track_number,
+        t.metadata_source,
+        t.metadata_updated_at,
         CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
       FROM tracks t
       LEFT JOIN favorites f ON f.track_id = t.id
@@ -303,6 +315,12 @@ async function createTrack(req, res) {
         t.container,
         t.channels,
         t.file_size,
+        t.album_artist,
+        t.genre,
+        t.year,
+        t.track_number,
+        t.metadata_source,
+        t.metadata_updated_at,
         CASE WHEN f.track_id IS NULL THEN 0 ELSE 1 END AS is_favorite
       FROM tracks t
       LEFT JOIN favorites f ON f.track_id = t.id
@@ -461,11 +479,112 @@ async function recordTrackPlay(req, res) {
   }
 }
 
+async function updateTrackMetadata(req, res) {
+  const trackId = parseTrackId(req.params.id);
+  if (!trackId) {
+    return res.status(400).json({ error: 'Invalid track id' });
+  }
+
+  const { title, artist, album, album_artist, genre, year, track_number } = req.body || {};
+
+  // Validate fields
+  if (title !== undefined && (typeof title !== 'string' || title.trim().length === 0)) {
+    return res.status(400).json({ error: 'Title must be a non-empty string' });
+  }
+  if (artist !== undefined && typeof artist !== 'string') {
+    return res.status(400).json({ error: 'Artist must be a string' });
+  }
+  if (album !== undefined && typeof album !== 'string') {
+    return res.status(400).json({ error: 'Album must be a string' });
+  }
+  if (album_artist !== undefined && typeof album_artist !== 'string') {
+    return res.status(400).json({ error: 'Album Artist must be a string' });
+  }
+  if (genre !== undefined && typeof genre !== 'string') {
+    return res.status(400).json({ error: 'Genre must be a string' });
+  }
+
+  let valYear = null;
+  if (year !== undefined && year !== null) {
+    valYear = Number(year);
+    if (!Number.isInteger(valYear) || valYear < 0) {
+      return res.status(400).json({ error: 'Year must be a valid positive integer' });
+    }
+  }
+
+  let valTrackNum = null;
+  if (track_number !== undefined && track_number !== null) {
+    valTrackNum = Number(track_number);
+    if (!Number.isInteger(valTrackNum) || valTrackNum < 0) {
+      return res.status(400).json({ error: 'Track Number must be a valid positive integer' });
+    }
+  }
+
+  try {
+    const track = await findTrackById(trackId);
+    if (!track) {
+      return res.status(404).json({ error: 'Track not found' });
+    }
+
+    const updates = [];
+    const params = [];
+
+    if (title !== undefined) {
+      updates.push('title = ?');
+      params.push(title.trim());
+    }
+    if (artist !== undefined) {
+      updates.push('artist = ?');
+      params.push(artist.trim() || null);
+    }
+    if (album !== undefined) {
+      updates.push('album = ?');
+      params.push(album.trim() || null);
+    }
+    if (album_artist !== undefined) {
+      updates.push('album_artist = ?');
+      params.push(album_artist.trim() || null);
+    }
+    if (genre !== undefined) {
+      updates.push('genre = ?');
+      params.push(genre.trim() || null);
+    }
+    if (year !== undefined) {
+      updates.push('year = ?');
+      params.push(valYear);
+    }
+    if (track_number !== undefined) {
+      updates.push('track_number = ?');
+      params.push(valTrackNum);
+    }
+
+    updates.push("metadata_source = 'database'");
+    updates.push("metadata_updated_at = CURRENT_TIMESTAMP");
+
+    params.push(trackId);
+
+    await dbRun(`
+      UPDATE tracks
+      SET ${updates.join(', ')}
+      WHERE id = ?
+    `, params);
+
+    const updatedTrack = await findTrackById(trackId);
+    return res.json({ track: updatedTrack });
+  } catch (err) {
+    return res.status(500).json({
+      error: 'Failed to update track metadata',
+      message: err.message
+    });
+  }
+}
+
 module.exports = {
   listTracks,
   createTrack,
   getTrackById,
   favoriteTrack,
   unfavoriteTrack,
-  recordTrackPlay
+  recordTrackPlay,
+  updateTrackMetadata
 };

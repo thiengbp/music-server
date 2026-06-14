@@ -2750,6 +2750,7 @@ function renderActionMenu(track, options = {}) {
   const copyInfo = document.createElement('button');
   const removeFromPlaylist = document.createElement('button');
   const favorite = document.createElement('button');
+  const editMetadata = document.createElement('button');
   const ratingLabel = document.createElement('span');
   const viewAlbum = document.createElement('button');
   const viewArtist = document.createElement('button');
@@ -2837,6 +2838,14 @@ function renderActionMenu(track, options = {}) {
   ratingLabel.className = 'action-label';
   ratingLabel.textContent = 'Rating';
 
+  editMetadata.type = 'button';
+  editMetadata.textContent = 'Edit Metadata';
+  editMetadata.addEventListener('click', (event) => {
+    event.stopPropagation();
+    closeActionMenus();
+    openEditMetadataModal(track);
+  });
+
   viewAlbum.type = 'button';
   viewAlbum.textContent = 'View album';
   viewAlbum.addEventListener('click', (event) => {
@@ -2891,6 +2900,7 @@ function renderActionMenu(track, options = {}) {
     ...(options.playlistId ? [removeFromPlaylist] : []),
     copyInfo,
     favorite,
+    editMetadata,
     ratingLabel,
     renderRatingControl(track),
     viewAlbum,
@@ -2899,6 +2909,163 @@ function renderActionMenu(track, options = {}) {
   wrapper.append(trigger, menu);
 
   return wrapper;
+}
+
+function openEditMetadataModal(track) {
+  const overlay = document.createElement('div');
+  overlay.className = 'metadata-modal-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', `Edit metadata for ${track.title}`);
+
+  const card = document.createElement('div');
+  card.className = 'metadata-modal-card';
+
+  const header = document.createElement('div');
+  header.className = 'metadata-modal-header';
+  const headerTitle = document.createElement('h3');
+  headerTitle.textContent = 'Edit Track Metadata';
+  header.append(headerTitle);
+
+  const form = document.createElement('form');
+  form.className = 'metadata-modal-form';
+  form.addEventListener('submit', (e) => e.preventDefault());
+
+  function createFormGroup(labelName, inputId, value, type = 'text', placeholder = '') {
+    const group = document.createElement('div');
+    group.className = 'metadata-form-group';
+
+    const label = document.createElement('label');
+    label.setAttribute('for', inputId);
+    label.textContent = labelName;
+
+    const input = document.createElement('input');
+    input.type = type;
+    input.id = inputId;
+    input.value = value !== null && value !== undefined ? value : '';
+    input.placeholder = placeholder;
+
+    group.append(label, input);
+    return { group, input };
+  }
+
+  const { group: titleGroup, input: titleInput } = createFormGroup('Title', 'meta-title', track.title);
+  const { group: artistGroup, input: artistInput } = createFormGroup('Artist', 'meta-artist', track.artist);
+  const { group: albumGroup, input: albumInput } = createFormGroup('Album', 'meta-album', track.album);
+  const { group: albumArtistGroup, input: albumArtistInput } = createFormGroup('Album Artist', 'meta-album-artist', track.album_artist || '');
+  const { group: genreGroup, input: genreInput } = createFormGroup('Genre', 'meta-genre', track.genre || '', 'text', 'e.g. Pop, Rock');
+  const { group: yearGroup, input: yearInput } = createFormGroup('Year', 'meta-year', track.year, 'number', 'e.g. 2024');
+  const { group: trackNoGroup, input: trackNoInput } = createFormGroup('Track No.', 'meta-track-no', track.track_number, 'number', 'e.g. 1');
+
+  form.append(titleGroup, artistGroup, albumGroup, albumArtistGroup, genreGroup, yearGroup, trackNoGroup);
+
+  const note = document.createElement('p');
+  note.className = 'metadata-modal-note';
+  note.textContent = 'Changes are saved in Music Server only. Original audio files are not modified.';
+  card.append(header, form, note);
+
+  const actions = document.createElement('div');
+  actions.className = 'metadata-modal-actions';
+
+  const cancelButton = document.createElement('button');
+  cancelButton.type = 'button';
+  cancelButton.className = 'metadata-btn secondary';
+  cancelButton.textContent = 'Cancel';
+  cancelButton.addEventListener('click', () => {
+    overlay.remove();
+  });
+
+  const saveButton = document.createElement('button');
+  saveButton.type = 'button';
+  saveButton.className = 'metadata-btn primary';
+  saveButton.textContent = 'Save';
+  saveButton.addEventListener('click', async () => {
+    const payload = {
+      title: titleInput.value.trim(),
+      artist: artistInput.value.trim(),
+      album: albumInput.value.trim(),
+      album_artist: albumArtistInput.value.trim(),
+      genre: genreInput.value.trim(),
+      year: yearInput.value ? parseInt(yearInput.value, 10) : null,
+      track_number: trackNoInput.value ? parseInt(trackNoInput.value, 10) : null
+    };
+
+    if (!payload.title) {
+      showToast('Title is required');
+      return;
+    }
+
+    saveButton.disabled = true;
+    saveButton.textContent = 'Saving...';
+
+    try {
+      const response = await fetch(`/tracks/${track.id}/metadata`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update metadata');
+      }
+
+      const data = await response.json();
+      if (data && data.track) {
+        showToast('Metadata saved');
+        updateTrackInMemory(data.track);
+
+        if (activeTrackId === track.id) {
+          nowTitle.textContent = data.track.title;
+          nowArtist.textContent = formatArtist(data.track);
+          heroTitle.textContent = data.track.title;
+          heroMeta.textContent = `${formatArtist(data.track)} • ${formatAlbum(data.track)}`;
+          if (typeof updateTechnicalMetadataUI === 'function') {
+            updateTechnicalMetadataUI(data.track);
+          }
+        }
+
+        if (typeof renderSongs === 'function' && activeLibraryTab === 'songs') {
+          renderSongs();
+        } else if (typeof renderFavorites === 'function' && activeLibraryTab === 'favorites') {
+          renderFavorites();
+        } else if (typeof renderRecent === 'function' && activeLibraryTab === 'recent') {
+          renderRecent();
+        } else if (typeof renderRecentAdded === 'function' && activeLibraryTab === 'recentAdded') {
+          renderRecentAdded();
+        } else if (typeof renderPlaylistDetail === 'function' && selectedPlaylistId !== null) {
+          renderPlaylistDetail(selectedPlaylistId);
+        } else if (typeof renderAlbumDetail === 'function' && selectedAlbumName !== null) {
+          renderAlbumDetail();
+        } else if (typeof renderArtistDetail === 'function' && selectedArtistName !== null) {
+          renderArtistDetail();
+        }
+      }
+      overlay.remove();
+    } catch (err) {
+      showToast(err.message);
+      saveButton.disabled = false;
+      saveButton.textContent = 'Save';
+    }
+  });
+
+  actions.append(cancelButton, saveButton);
+  card.append(actions);
+  overlay.append(card);
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+
+  const handleEsc = (e) => {
+    if (e.key === 'Escape') {
+      overlay.remove();
+      window.removeEventListener('keydown', handleEsc);
+    }
+  };
+  window.addEventListener('keydown', handleEsc);
+
+  document.body.append(overlay);
 }
 
 function renderFavoriteButton(track) {

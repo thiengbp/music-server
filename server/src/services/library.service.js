@@ -69,7 +69,8 @@ async function collectAudioFiles(directoryPath) {
 async function processTrackScan(filePath) {
   // 1. Check if track already exists in database
   const existing = await dbGet(`
-    SELECT id, bitrate, sample_rate, bit_depth, codec, container, channels, file_size
+    SELECT id, bitrate, sample_rate, bit_depth, codec, container, channels, file_size, metadata_source,
+           album_artist, genre, year, track_number, metadata_updated_at
     FROM tracks
     WHERE file_path = ?
   `, [filePath]);
@@ -90,8 +91,14 @@ async function processTrackScan(filePath) {
         codec,
         container,
         channels,
-        file_size
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        file_size,
+        album_artist,
+        genre,
+        year,
+        track_number,
+        metadata_source,
+        metadata_updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'file', CURRENT_TIMESTAMP)
     `, [
       metadata.title,
       metadata.artist,
@@ -104,13 +111,17 @@ async function processTrackScan(filePath) {
       metadata.codec,
       metadata.container,
       metadata.channels,
-      metadata.file_size
+      metadata.file_size,
+      metadata.album_artist,
+      metadata.genre,
+      metadata.year,
+      metadata.track_number
     ]);
     return { status: 'inserted' };
   }
 
-  // Track exists, check if we need to update/backfill technical metadata
-  const hasNullField =
+  // Track exists, check if we need to update/backfill technical metadata or new basic metadata
+  const hasNullTechnicalField =
     existing.bitrate === null ||
     existing.sample_rate === null ||
     existing.bit_depth === null ||
@@ -119,33 +130,75 @@ async function processTrackScan(filePath) {
     existing.channels === null ||
     existing.file_size === null;
 
-  if (hasNullField) {
-    // Missing metadata, read file and backfill columns
+  const isFromFile = existing.metadata_source === 'file';
+  
+  // Backfill basic metadata if the file is the source and we have never performed a backfill (metadata_updated_at is null)
+  const needBasicBackfill = isFromFile && existing.metadata_updated_at === null;
+
+  const needUpdate = hasNullTechnicalField || needBasicBackfill;
+
+  if (needUpdate) {
     const metadata = await metadataService.readMetadata(filePath);
-    await dbRun(`
-      UPDATE tracks SET
-        bitrate = CASE WHEN bitrate IS NULL THEN ? ELSE bitrate END,
-        sample_rate = CASE WHEN sample_rate IS NULL THEN ? ELSE sample_rate END,
-        bit_depth = CASE WHEN bit_depth IS NULL THEN ? ELSE bit_depth END,
-        codec = CASE WHEN codec IS NULL THEN ? ELSE codec END,
-        container = CASE WHEN container IS NULL THEN ? ELSE container END,
-        channels = CASE WHEN channels IS NULL THEN ? ELSE channels END,
-        file_size = CASE WHEN file_size IS NULL THEN ? ELSE file_size END
-      WHERE id = ?
-    `, [
-      metadata.bitrate,
-      metadata.sample_rate,
-      metadata.bit_depth,
-      metadata.codec,
-      metadata.container,
-      metadata.channels,
-      metadata.file_size,
-      existing.id
-    ]);
-    return { status: 'updated' };
+    
+    if (isFromFile) {
+      // If it is 'file' source, we can safely backfill basic metadata if they are null in DB
+      await dbRun(`
+        UPDATE tracks SET
+          bitrate = CASE WHEN bitrate IS NULL THEN ? ELSE bitrate END,
+          sample_rate = CASE WHEN sample_rate IS NULL THEN ? ELSE sample_rate END,
+          bit_depth = CASE WHEN bit_depth IS NULL THEN ? ELSE bit_depth END,
+          codec = CASE WHEN codec IS NULL THEN ? ELSE codec END,
+          container = CASE WHEN container IS NULL THEN ? ELSE container END,
+          channels = CASE WHEN channels IS NULL THEN ? ELSE channels END,
+          file_size = CASE WHEN file_size IS NULL THEN ? ELSE file_size END,
+          album_artist = CASE WHEN album_artist IS NULL THEN ? ELSE album_artist END,
+          genre = CASE WHEN genre IS NULL THEN ? ELSE genre END,
+          year = CASE WHEN year IS NULL THEN ? ELSE year END,
+          track_number = CASE WHEN track_number IS NULL THEN ? ELSE track_number END,
+          metadata_updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `, [
+        metadata.bitrate,
+        metadata.sample_rate,
+        metadata.bit_depth,
+        metadata.codec,
+        metadata.container,
+        metadata.channels,
+        metadata.file_size,
+        metadata.album_artist,
+        metadata.genre,
+        metadata.year,
+        metadata.track_number,
+        existing.id
+      ]);
+      return { status: 'updated' };
+    } else {
+      // If it is 'database' (user edited), NEVER overwrite basic metadata fields.
+      // Only backfill technical metadata if they are NULL.
+      await dbRun(`
+        UPDATE tracks SET
+          bitrate = CASE WHEN bitrate IS NULL THEN ? ELSE bitrate END,
+          sample_rate = CASE WHEN sample_rate IS NULL THEN ? ELSE sample_rate END,
+          bit_depth = CASE WHEN bit_depth IS NULL THEN ? ELSE bit_depth END,
+          codec = CASE WHEN codec IS NULL THEN ? ELSE codec END,
+          container = CASE WHEN container IS NULL THEN ? ELSE container END,
+          channels = CASE WHEN channels IS NULL THEN ? ELSE channels END,
+          file_size = CASE WHEN file_size IS NULL THEN ? ELSE file_size END
+        WHERE id = ?
+      `, [
+        metadata.bitrate,
+        metadata.sample_rate,
+        metadata.bit_depth,
+        metadata.codec,
+        metadata.container,
+        metadata.channels,
+        metadata.file_size,
+        existing.id
+      ]);
+      return { status: 'updated' };
+    }
   }
 
-  // Already has all metadata, skip
   return { status: 'skipped' };
 }
 

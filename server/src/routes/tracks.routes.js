@@ -11,5 +11,6 @@ router.post('/:id/favorite', tracksController.favoriteTrack);
 router.delete('/:id/favorite', tracksController.unfavoriteTrack);
 router.post('/:id/play', tracksController.recordTrackPlay);
 router.get('/:id', tracksController.getTrackById);
+router.patch('/:id/metadata', tracksController.updateTrackMetadata);
 
 module.exports = router;
